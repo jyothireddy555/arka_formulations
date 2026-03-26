@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'auth.dart';
-
 // ─────────────────────────────────────────
 // MR MAIN SCREEN WITH BOTTOM NAVIGATION
 // ─────────────────────────────────────────
@@ -17,8 +18,8 @@ class _MrMainScreenState extends State<MrMainScreen> {
   final List<Widget> _screens = [
     const MrDashboardScreen(),
     const MrDoctorsScreen(),
+    const MrProductsScreen(),
     const MrOrdersScreen(),
-    const MrReportsScreen(),
     const MrProfileScreen(),
   ];
 
@@ -42,12 +43,12 @@ class _MrMainScreenState extends State<MrMainScreen> {
             label: 'Doctors',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.shopping_cart),
-            label: 'Orders',
+            icon: Icon(Icons.medication),
+            label: 'Products',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.assignment),
-            label: 'Reports',
+            icon: Icon(Icons.shopping_cart),
+            label: 'Orders',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.person),
@@ -279,6 +280,198 @@ class MrDashboardScreen extends StatelessWidget {
           style: const TextStyle(fontSize: 11, color: Colors.grey),
         ),
       ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────
+// MR PRODUCTS SCREEN
+// ─────────────────────────────────────────
+class MrProductsScreen extends StatefulWidget {
+  const MrProductsScreen({super.key});
+
+  @override
+  State<MrProductsScreen> createState() => _MrProductsScreenState();
+}
+
+class _MrProductsScreenState extends State<MrProductsScreen> {
+  String _filterDivision = 'All';
+  String _searchQuery = '';
+  final List<String> _divisions = ['All', 'Ortho', 'Gynec', 'General'];
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Products & Stock')),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: TextField(
+              onChanged: (val) =>
+                  setState(() => _searchQuery = val.toLowerCase()),
+              decoration: InputDecoration(
+                hintText: 'Search products...',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                  icon: const Icon(Icons.clear),
+                  onPressed: () => setState(() => _searchQuery = ''),
+                )
+                    : null,
+              ),
+            ),
+          ),
+          SizedBox(
+            height: 40,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              itemCount: _divisions.length,
+              itemBuilder: (context, index) {
+                final div = _divisions[index];
+                final isSelected = _filterDivision == div;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: FilterChip(
+                    label: Text(div),
+                    selected: isSelected,
+                    onSelected: (_) =>
+                        setState(() => _filterDivision = div),
+                    selectedColor:
+                    const Color(0xFF1565C0).withOpacity(0.2),
+                    checkmarkColor: const Color(0xFF1565C0),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('products')
+                  .orderBy('createdAt', descending: true)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.inventory_2_outlined,
+                            size: 80, color: Colors.grey.shade300),
+                        const SizedBox(height: 16),
+                        Text('No products available',
+                            style: TextStyle(
+                                color: Colors.grey.shade500,
+                                fontSize: 16)),
+                      ],
+                    ),
+                  );
+                }
+                var products = snapshot.data!.docs.where((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  final name =
+                  (data['name'] ?? '').toString().toLowerCase();
+                  final division = (data['division'] ?? '').toString();
+                  final matchesSearch = _searchQuery.isEmpty ||
+                      name.contains(_searchQuery);
+                  final matchesDivision = _filterDivision == 'All' ||
+                      division == _filterDivision;
+                  return matchesSearch && matchesDivision;
+                }).toList();
+
+                return ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  itemCount: products.length,
+                  itemBuilder: (context, index) {
+                    final data =
+                    products[index].data() as Map<String, dynamic>;
+                    final stock = data['stock'] ?? 0;
+                    final minStock = data['minStock'] ?? 10;
+                    final isOutOfStock = stock == 0;
+                    final isLowStock = stock > 0 && stock <= minStock;
+                    final division = data['division'] ?? 'General';
+
+                    Color color;
+                    switch (division) {
+                      case 'Ortho':
+                        color = Colors.blue;
+                        break;
+                      case 'Gynec':
+                        color = Colors.pink;
+                        break;
+                      default:
+                        color = Colors.green;
+                    }
+
+                    Color stockColor = Colors.green;
+                    String stockLabel = 'Available';
+                    if (isOutOfStock) {
+                      stockColor = Colors.red;
+                      stockLabel = 'Out of Stock';
+                    } else if (isLowStock) {
+                      stockColor = Colors.orange;
+                      stockLabel = 'Low Stock';
+                    }
+
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      child: ListTile(
+                        leading: Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: color.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(Icons.medication, color: color),
+                        ),
+                        title: Text(data['name'] ?? 'Unknown',
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold)),
+                        subtitle: Text(
+                          '${data['packSize'] ?? ''} • ₹${data['price'] ?? 'N/A'}\n$division',
+                        ),
+                        isThreeLine: true,
+                        trailing: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text('$stock units',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: stockColor)),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: stockColor.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(stockLabel,
+                                  style: TextStyle(
+                                      fontSize: 10,
+                                      color: stockColor,
+                                      fontWeight: FontWeight.w600)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -599,11 +792,9 @@ class MrProfileScreen extends StatelessWidget {
                 'Logout',
                 style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600),
               ),
-              onTap: () {
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (_) => const LoginScreen()),
-                );
+              onTap: () async {
+                isLoggingOut = true;
+                await auth.signOut();
               },
             ),
           ],

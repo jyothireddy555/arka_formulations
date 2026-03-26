@@ -4,85 +4,215 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'mr_screens.dart';
 import 'admin_screens.dart';
 
-// ─────────────────────────────────────────
-// FIREBASE INSTANCES
-// ─────────────────────────────────────────
 final FirebaseAuth auth = FirebaseAuth.instance;
 final FirebaseFirestore db = FirebaseFirestore.instance;
 
 // ─────────────────────────────────────────
-// AUTH WRAPPER
-// Checks if user is logged in and redirects
+// AUTH WRAPPER — listens to login state
+// Uses idTokenChanges() and caches last known
+// user so token refreshes don't cause a flash
 // ─────────────────────────────────────────
-class AuthWrapper extends StatelessWidget {
+// Global flag — set true before signing out
+bool isLoggingOut = false;
+
+class AuthWrapper extends StatefulWidget {
   const AuthWrapper({super.key});
+
+  @override
+  State<AuthWrapper> createState() => _AuthWrapperState();
+}
+
+class _AuthWrapperState extends State<AuthWrapper> {
+  User? _lastKnownUser;
+  bool _initialised = false;
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<User?>(
-      stream: auth.authStateChanges(),
+      stream: auth.idTokenChanges(),
       builder: (context, snapshot) {
-        // Still loading
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
+        if (!_initialised &&
+            snapshot.connectionState == ConnectionState.waiting) {
+          return const _LoadingScreen(message: 'Connecting...');
         }
 
-        // User is logged in
+        if (snapshot.connectionState != ConnectionState.waiting) {
+          _initialised = true;
+        }
+
         if (snapshot.hasData && snapshot.data != null) {
+          isLoggingOut = false;
+          _lastKnownUser = snapshot.data;
+        }
+
+        // Only show "Refreshing" if it's a token refresh, NOT a real logout
+        if (snapshot.data == null && _lastKnownUser != null && !isLoggingOut) {
+          return const _LoadingScreen(message: 'Refreshing session...');
+        }
+
+        if (_lastKnownUser != null && !isLoggingOut) {
           return const RoleRedirector();
         }
 
-        // User is not logged in
+        _lastKnownUser = null;
         return const LoginScreen();
       },
     );
   }
 }
-
 // ─────────────────────────────────────────
 // ROLE REDIRECTOR
-// Checks Firestore for user role and redirects
 // ─────────────────────────────────────────
 class RoleRedirector extends StatelessWidget {
   const RoleRedirector({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<DocumentSnapshot>(
-      future: db.collection('users').doc(auth.currentUser!.uid).get(),
+    return StreamBuilder<DocumentSnapshot>(
+      stream: db
+          .collection('users')
+          .doc(auth.currentUser!.uid)
+          .snapshots(), // ← real-time stream, stays alive
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            body: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('Loading your profile...'),
-                ],
-              ),
-            ),
-          );
+          return const _LoadingScreen(message: 'Loading profile...');
         }
 
-        if (snapshot.hasError || !snapshot.hasData || !snapshot.data!.exists) {
-          // Something went wrong, logout and go to login
-          auth.signOut();
+        // Only sign out on definitive "document doesn't exist" — not on errors
+        if (snapshot.hasData && snapshot.data!.exists) {
+          final data = snapshot.data!.data() as Map<String, dynamic>;
+          final role = data['role'] ?? 'mr';
+          final isActive = data['isActive'] ?? true;
+
+          if (!isActive && role == 'mr') {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              auth.signOut();
+            });
+            return const _DeactivatedScreen();
+          }
+
+          if (role == 'admin') {
+            return const AdminMainScreen();
+          } else {
+            return const MrMainScreen();
+          }
+        }
+
+        // Transient error — don't sign out, just keep loading
+        if (snapshot.hasError) {
+          return const _LoadingScreen(message: 'Retrying...');
+        }
+
+        // Document truly doesn't exist — then sign out
+        if (snapshot.hasData && !snapshot.data!.exists) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            auth.signOut();
+          });
           return const LoginScreen();
         }
 
-        final data = snapshot.data!.data() as Map<String, dynamic>;
-        final role = data['role'] ?? 'mr';
-
-        if (role == 'admin') {
-          return const AdminMainScreen();
-        } else {
-          return const MrMainScreen();
-        }
+        return const _LoadingScreen(message: 'Loading profile...');
       },
+    );
+  }
+}
+
+// ─────────────────────────────────────────
+// LOADING SCREEN
+// ─────────────────────────────────────────
+class _LoadingScreen extends StatelessWidget {
+  final String message;
+  const _LoadingScreen({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF1565C0),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Icon(
+                Icons.medical_services,
+                size: 50,
+                color: Color(0xFF1565C0),
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Arka Formulations',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 24),
+            const CircularProgressIndicator(color: Colors.white),
+            const SizedBox(height: 16),
+            Text(
+              message,
+              style: const TextStyle(color: Colors.white70),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────
+// DEACTIVATED SCREEN
+// ─────────────────────────────────────────
+class _DeactivatedScreen extends StatelessWidget {
+  const _DeactivatedScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF1565C0),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.block, color: Colors.white, size: 80),
+              const SizedBox(height: 24),
+              const Text(
+                'Account Deactivated',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Your account has been deactivated.\nPlease contact your administrator.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white70, fontSize: 14),
+              ),
+              const SizedBox(height: 32),
+              ElevatedButton(
+                onPressed: () => auth.signOut(),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: const Color(0xFF1565C0),
+                ),
+                child: const Text('Back to Login'),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -123,16 +253,16 @@ class _LoginScreenState extends State<LoginScreen> {
         email: email,
         password: password,
       );
-      // AuthWrapper will automatically redirect based on role
+      // AuthWrapper's StreamBuilder will automatically
+      // detect the login and redirect to correct screen
     } on FirebaseAuthException catch (e) {
       setState(() {
         _isLoading = false;
         switch (e.code) {
           case 'user-not-found':
-            _errorMessage = 'No account found with this email.';
-            break;
           case 'wrong-password':
-            _errorMessage = 'Incorrect password. Please try again.';
+          case 'invalid-credential':
+            _errorMessage = 'Invalid email or password.';
             break;
           case 'invalid-email':
             _errorMessage = 'Please enter a valid email address.';
@@ -141,10 +271,11 @@ class _LoginScreenState extends State<LoginScreen> {
             _errorMessage = 'This account has been disabled.';
             break;
           case 'too-many-requests':
-            _errorMessage = 'Too many attempts. Please try again later.';
+            _errorMessage =
+            'Too many attempts. Please try again later.';
             break;
           default:
-            _errorMessage = 'Login failed. Please check your credentials.';
+            _errorMessage = 'Login failed. Please try again.';
         }
       });
     } catch (e) {
@@ -199,7 +330,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 6),
                 const Text(
                   'Field Force Management',
-                  style: TextStyle(color: Colors.white70, fontSize: 14),
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 14,
+                  ),
                 ),
                 const SizedBox(height: 40),
 
@@ -248,15 +382,16 @@ class _LoginScreenState extends State<LoginScreen> {
                         onSubmitted: (_) => _login(),
                         decoration: InputDecoration(
                           labelText: 'Password',
-                          prefixIcon: const Icon(Icons.lock_outlined),
+                          prefixIcon:
+                          const Icon(Icons.lock_outlined),
                           suffixIcon: IconButton(
                             icon: Icon(
                               _obscurePassword
                                   ? Icons.visibility_off
                                   : Icons.visibility,
                             ),
-                            onPressed: () => setState(
-                                    () => _obscurePassword = !_obscurePassword),
+                            onPressed: () => setState(() =>
+                            _obscurePassword = !_obscurePassword),
                           ),
                         ),
                       ),
@@ -270,7 +405,8 @@ class _LoginScreenState extends State<LoginScreen> {
                           decoration: BoxDecoration(
                             color: Colors.red.shade50,
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.red.shade200),
+                            border:
+                            Border.all(color: Colors.red.shade200),
                           ),
                           child: Row(
                             children: [
@@ -281,7 +417,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                 child: Text(
                                   _errorMessage,
                                   style: const TextStyle(
-                                      color: Colors.red, fontSize: 13),
+                                      color: Colors.red,
+                                      fontSize: 13),
                                 ),
                               ),
                             ],
@@ -290,7 +427,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
                       // Login button
                       _isLoading
-                          ? const Center(child: CircularProgressIndicator())
+                          ? const Center(
+                          child: CircularProgressIndicator())
                           : ElevatedButton(
                         onPressed: _login,
                         child: const Text(
