@@ -960,13 +960,11 @@ class MrOrdersScreen extends StatelessWidget {
         label: const Text('New Order'),
       ),
       body: StreamBuilder<QuerySnapshot>(
-        // orders has mrId (equality) + createdAt (orderBy) → compound index needed
-        // that index Firestore auto-suggests; keep this query as-is and create
-        // the index from the link in the debug console if orders aren't loading.
+        // FIX: removed .orderBy('createdAt') — sorting client-side avoids
+        // the composite index requirement (mrId equality + createdAt orderBy).
         stream: db
             .collection('orders')
             .where('mrId', isEqualTo: uid)
-            .orderBy('createdAt', descending: true)
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -1005,11 +1003,21 @@ class MrOrdersScreen extends StatelessWidget {
                   ]),
             );
           }
+          // client-side sort by createdAt descending (no composite index needed)
+          final orderedDocs = List.of(snapshot.data!.docs)
+            ..sort((a, b) {
+              final aTs = (a.data() as Map)['createdAt'];
+              final bTs = (b.data() as Map)['createdAt'];
+              if (aTs == null && bTs == null) return 0;
+              if (aTs == null) return 1;
+              if (bTs == null) return -1;
+              return (bTs as Timestamp).compareTo(aTs as Timestamp);
+            });
           return ListView.builder(
             padding: const EdgeInsets.all(12),
-            itemCount: snapshot.data!.docs.length,
+            itemCount: orderedDocs.length,
             itemBuilder: (context, i) {
-              final doc    = snapshot.data!.docs[i];
+              final doc    = orderedDocs[i];
               final data   = doc.data() as Map<String, dynamic>;
               final status = data['status'] ?? 'pending';
               final color  = _statusColor(status);
@@ -1056,12 +1064,8 @@ class MrOrdersScreen extends StatelessWidget {
     );
   }
 }
-
 // ─────────────────────────────────────────
-// MR PLACE ORDER SCREEN
-// FIX: Doctor dropdown query changed to orderBy('name') only (no isActive
-//      filter in the query); filtered client-side.
-//      Product query changed to orderBy('name') only; stock > 0 client-side.
+// MR PLACE ORDER SCREEN (FIXED)
 // ─────────────────────────────────────────
 class MrPlaceOrderScreen extends StatefulWidget {
   final String? preselectedDoctorId;
@@ -1076,16 +1080,45 @@ class MrPlaceOrderScreen extends StatefulWidget {
 class _MrPlaceOrderScreenState extends State<MrPlaceOrderScreen> {
   String? _selectedDoctorId;
   String? _selectedDoctorName;
-  final Map<String, int>                 _quantities    = {};
+  final Map<String, int> _quantities = {};
   final Map<String, Map<String, dynamic>> _productCache = {};
   final _remarksCtrl = TextEditingController();
   bool _submitting = false;
+  bool _loadingDoctors = true;
+  bool _loadingProducts = true;
+  List<QueryDocumentSnapshot> _doctors = [];
+  List<QueryDocumentSnapshot> _products = [];
 
   @override
   void initState() {
     super.initState();
-    _selectedDoctorId   = widget.preselectedDoctorId;
+    _selectedDoctorId = widget.preselectedDoctorId;
     _selectedDoctorName = widget.preselectedDoctorName;
+    debugPrint('Preselected doctor: $_selectedDoctorName ($_selectedDoctorId)');
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    // Load doctors
+    final doctorsSnap = await db.collection('doctors').orderBy('name').get();
+    setState(() {
+      _doctors = doctorsSnap.docs.where((d) {
+        final data = d.data() as Map<String, dynamic>;
+        return data['isActive'] as bool? ?? true;
+      }).toList();
+      _loadingDoctors = false;
+    });
+
+    // Load products
+    final productsSnap = await db.collection('products').orderBy('name').get();
+    setState(() {
+      _products = productsSnap.docs.where((p) {
+        final data = p.data() as Map<String, dynamic>;
+        final stock = (data['stock'] as num?)?.toInt() ?? 0;
+        return stock > 0;
+      }).toList();
+      _loadingProducts = false;
+    });
   }
 
   @override
@@ -1106,10 +1139,10 @@ class _MrPlaceOrderScreenState extends State<MrPlaceOrderScreen> {
     final orderItems = _quantities.entries
         .where((e) => e.value > 0)
         .map((e) => {
-      'productId':   e.key,
+      'productId': e.key,
       'productName': _productCache[e.key]?['name'] ?? '',
-      'quantity':    e.value,
-      'price':       _productCache[e.key]?['price'] ?? 0,
+      'quantity': e.value,
+      'price': _productCache[e.key]?['price'] ?? 0,
     })
         .toList();
     if (orderItems.isEmpty) {
@@ -1121,14 +1154,14 @@ class _MrPlaceOrderScreenState extends State<MrPlaceOrderScreen> {
     try {
       final uid = auth.currentUser!.uid;
       await db.collection('orders').add({
-        'mrId':        uid,
-        'doctorId':    _selectedDoctorId,
-        'doctorName':  _selectedDoctorName,
-        'items':       orderItems,
-        'remarks':     _remarksCtrl.text.trim(),
-        'status':      'pending',
-        'date':        _dateKey(DateTime.now()),
-        'createdAt':   FieldValue.serverTimestamp(),
+        'mrId': uid,
+        'doctorId': _selectedDoctorId,
+        'doctorName': _selectedDoctorName,
+        'items': orderItems,
+        'remarks': _remarksCtrl.text.trim(),
+        'status': 'pending',
+        'date': _dateKey(DateTime.now()),
+        'createdAt': FieldValue.serverTimestamp(),
       });
       if (mounted) {
         Navigator.pop(context);
@@ -1149,195 +1182,232 @@ class _MrPlaceOrderScreenState extends State<MrPlaceOrderScreen> {
     final totalItems = _quantities.values.fold(0, (a, b) => a + b);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Place New Order')),
-      body: Column(children: [
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-
-              // ── Doctor selection ──────────────────────────────────
-              const Text('Select Doctor',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-              const SizedBox(height: 8),
-              StreamBuilder<QuerySnapshot>(
-                // FIX: orderBy('name') only — no compound index
-                stream: db.collection('doctors').orderBy('name').snapshots(),
-                builder: (context, snap) {
-                  if (snap.hasError) {
-                    return Text('Error loading doctors: ${snap.error}',
-                        style: const TextStyle(color: Colors.red, fontSize: 12));
-                  }
-                  if (!snap.hasData) return const LinearProgressIndicator();
-
-                  // filter isActive client-side
-                  final docs = snap.data!.docs.where((d) {
-                    final data = d.data() as Map<String, dynamic>;
-                    return data['isActive'] as bool? ?? true;
-                  }).toList();
-
-                  return DropdownButtonFormField<String>(
-                    value: _selectedDoctorId,
-                    decoration: InputDecoration(
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10)),
-                      hintText: 'Choose a doctor',
-                      prefixIcon: const Icon(Icons.person),
-                    ),
-                    items: docs.map((d) {
-                      final data = d.data() as Map<String, dynamic>;
-                      return DropdownMenuItem<String>(
-                        value: d.id,
-                        child: Text('${data['name']} (${data['division']})'),
-                      );
-                    }).toList(),
-                    onChanged: (val) {
-                      if (val == null) return;
-                      final doc  = docs.firstWhere((d) => d.id == val);
-                      final data = doc.data() as Map<String, dynamic>;
-                      setState(() {
-                        _selectedDoctorId   = val;
-                        _selectedDoctorName = data['name'];
-                      });
-                    },
-                  );
-                },
-              ),
-              const SizedBox(height: 20),
-
-              // ── Products ─────────────────────────────────────────
-              const Text('Select Products',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-              const SizedBox(height: 8),
-              StreamBuilder<QuerySnapshot>(
-                // FIX: orderBy('name') only; stock > 0 filtered client-side
-                stream: db.collection('products').orderBy('name').snapshots(),
-                builder: (context, snap) {
-                  if (snap.hasError) {
-                    return Text('Error loading products: ${snap.error}',
-                        style: const TextStyle(color: Colors.red, fontSize: 12));
-                  }
-                  if (!snap.hasData) return const LinearProgressIndicator();
-
-                  // filter in-stock only client-side
-                  final products = snap.data!.docs.where((p) {
-                    final data  = p.data() as Map<String, dynamic>;
-                    final stock = (data['stock'] as num?)?.toInt() ?? 0;
-                    return stock > 0;
-                  }).toList();
-
-                  if (products.isEmpty) {
-                    return const Text('No products in stock.',
-                        style: TextStyle(color: Colors.red));
-                  }
-
-                  return Column(
-                    children: products.map((p) {
-                      final data = p.data() as Map<String, dynamic>;
-                      _productCache[p.id] = data;
-                      final qty = _quantities[p.id] ?? 0;
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10)),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 10),
-                          child: Row(children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(data['name'] ?? '',
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.bold)),
-                                  Text(
-                                      '₹${data['price'] ?? 'N/A'} • ${data['packSize'] ?? ''}',
-                                      style: TextStyle(
-                                          color: Colors.grey.shade600,
-                                          fontSize: 12)),
-                                ],
-                              ),
-                            ),
-                            Row(children: [
-                              IconButton(
-                                onPressed: qty > 0
-                                    ? () => setState(
-                                        () => _quantities[p.id] = qty - 1)
-                                    : null,
-                                icon: const Icon(Icons.remove_circle_outline),
-                                color: const Color(0xFF1565C0),
-                                iconSize: 22,
-                              ),
-                              SizedBox(
-                                width: 32,
-                                child: Text('$qty',
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold)),
-                              ),
-                              IconButton(
-                                onPressed: () => setState(
-                                        () => _quantities[p.id] = qty + 1),
-                                icon: const Icon(Icons.add_circle_outline),
-                                color: const Color(0xFF1565C0),
-                                iconSize: 22,
-                              ),
-                            ]),
-                          ]),
-                        ),
-                      );
-                    }).toList(),
-                  );
-                },
-              ),
-              const SizedBox(height: 16),
-
-              // Remarks
-              const Text('Remarks (optional)',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _remarksCtrl,
-                maxLines: 3,
-                decoration: InputDecoration(
-                  hintText: 'Any special instructions...',
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10)),
+      appBar: AppBar(
+        title: const Text('Place New Order'),
+        actions: [
+          if (_selectedDoctorName != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: Center(
+                child: Text(
+                  'Dr. ${_selectedDoctorName!.split(' ').last}',
+                  style: const TextStyle(fontSize: 14),
                 ),
               ),
-              const SizedBox(height: 80),
-            ]),
-          ),
-        ),
+            ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // ── Doctor selection ──
+                  const Text(
+                    'Select Doctor',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                  ),
+                  const SizedBox(height: 8),
+                  if (_loadingDoctors)
+                    const LinearProgressIndicator()
+                  else
+                    Container(
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.shade300),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButtonFormField<String>(
+                          value: _selectedDoctorId,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            border: InputBorder.none,
+                            contentPadding:
+                            EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                            prefixIcon: Icon(Icons.person),
+                          ),
+                          hint: const Text('Choose a doctor'),
+                          items: _doctors.map((d) {
+                            final data = d.data() as Map<String, dynamic>;
+                            return DropdownMenuItem<String>(
+                              value: d.id,
+                              child: Text(
+                                '${data['name']} (${data['division']})',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: (val) {
+                            if (val == null) return;
+                            final doc = _doctors.firstWhere((d) => d.id == val);
+                            final data = doc.data() as Map<String, dynamic>;
+                            setState(() {
+                              _selectedDoctorId = val;
+                              _selectedDoctorName = data['name'];
+                            });
+                          },
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 24),
 
-        // Submit bar
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            boxShadow: [BoxShadow(
-                color: Colors.grey.withOpacity(0.2), blurRadius: 8,
-                offset: const Offset(0, -2))],
+                  // ── Products ──
+                  const Text(
+                    'Select Products',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                  ),
+                  const SizedBox(height: 8),
+                  if (_loadingProducts)
+                    const LinearProgressIndicator()
+                  else if (_products.isEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade50,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Center(
+                        child: Text(
+                          'No products in stock.',
+                          style: TextStyle(color: Colors.orange),
+                        ),
+                      ),
+                    )
+                  else
+                    Column(
+                      children: _products.map((p) {
+                        final data = p.data() as Map<String, dynamic>;
+                        _productCache[p.id] = data;
+                        final qty = _quantities[p.id] ?? 0;
+                        return Card(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10)),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        data['name'] ?? '',
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.bold),
+                                      ),
+                                      Text(
+                                        '₹${data['price'] ?? 'N/A'} • ${data['packSize'] ?? ''}',
+                                        style: TextStyle(
+                                            color: Colors.grey.shade600,
+                                            fontSize: 12),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Row(
+                                  children: [
+                                    IconButton(
+                                      onPressed: qty > 0
+                                          ? () => setState(
+                                              () => _quantities[p.id] = qty - 1)
+                                          : null,
+                                      icon: const Icon(Icons.remove_circle_outline),
+                                      color: const Color(0xFF1565C0),
+                                      iconSize: 22,
+                                    ),
+                                    SizedBox(
+                                      width: 32,
+                                      child: Text(
+                                        '$qty',
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      onPressed: () => setState(
+                                              () => _quantities[p.id] = qty + 1),
+                                      icon: const Icon(Icons.add_circle_outline),
+                                      color: const Color(0xFF1565C0),
+                                      iconSize: 22,
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  const SizedBox(height: 16),
+
+                  // Remarks
+                  const Text(
+                    'Remarks (optional)',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _remarksCtrl,
+                    maxLines: 3,
+                    decoration: InputDecoration(
+                      hintText: 'Any special instructions...',
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                  const SizedBox(height: 80),
+                ],
+              ),
+            ),
           ),
-          child: Row(children: [
-            Expanded(
-              child: Text('$totalItems item(s) selected',
-                  style: const TextStyle(fontWeight: FontWeight.w600)),
+
+          // Submit bar
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                    color: Colors.grey.withOpacity(0.2),
+                    blurRadius: 8,
+                    offset: const Offset(0, -2))
+              ],
             ),
-            ElevatedButton(
-              onPressed: _submitting ? null : _submitOrder,
-              child: _submitting
-                  ? const SizedBox(
-                  width: 20, height: 20,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.white))
-                  : const Text('Submit Order'),
+            child: SafeArea(
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '$totalItems item(s) selected',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  ElevatedButton(
+                    onPressed: _submitting ? null : _submitOrder,
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: const Size(120, 40),
+                    ),
+                    child: _submitting
+                        ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
+                        : const Text('Submit Order'),
+                  ),
+                ],
+              ),
             ),
-          ]),
-        ),
-      ]),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1456,10 +1526,10 @@ class MrReportsScreen extends StatelessWidget {
         label: const Text('Submit Report'),
       ),
       body: StreamBuilder<QuerySnapshot>(
+        // FIX: client-side sort — no composite index needed
         stream: db
             .collection('daily_reports')
             .where('mrId', isEqualTo: uid)
-            .orderBy('date', descending: true)
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -1498,11 +1568,18 @@ class MrReportsScreen extends StatelessWidget {
                   ]),
             );
           }
+          // client-side sort by date descending (no composite index needed)
+          final reportDocs = List.of(snapshot.data!.docs)
+            ..sort((a, b) {
+              final aDate = (a.data() as Map)['date']?.toString() ?? '';
+              final bDate = (b.data() as Map)['date']?.toString() ?? '';
+              return bDate.compareTo(aDate);
+            });
           return ListView.builder(
             padding: const EdgeInsets.all(12),
-            itemCount: snapshot.data!.docs.length,
+            itemCount: reportDocs.length,
             itemBuilder: (context, i) {
-              final doc             = snapshot.data!.docs[i];
+              final doc             = reportDocs[i];
               final data            = doc.data() as Map<String, dynamic>;
               final doctorsVisited  =
                   (data['doctorsVisited'] as List?)?.join(', ') ?? 'None';
@@ -1597,13 +1674,19 @@ class _MrSubmitReportScreenState extends State<MrSubmitReportScreen> {
     setState(() => _submitting = true);
     try {
       final today = _dateKey(DateTime.now());
+
+      // Get MR name
+      final userDoc = await db.collection('users').doc(uid).get();
+      final mrName = userDoc.data()?['name'] ?? 'Unknown MR';
+
       await db.collection('daily_reports').add({
-        'mrId':           uid,
-        'date':           today,
+        'mrId': uid,
+        'mrName': mrName,  // ← ADD THIS
+        'date': today,
         'doctorsVisited': _visitedDoctorNames,
-        'notes':          _notesCtrl.text.trim(),
-        'followUp':       _followUpCtrl.text.trim(),
-        'createdAt':      FieldValue.serverTimestamp(),
+        'notes': _notesCtrl.text.trim(),
+        'followUp': _followUpCtrl.text.trim(),
+        'createdAt': FieldValue.serverTimestamp(),
       });
       await db.collection('attendance').doc('${uid}_$today').set({
         'mrId':      uid,
@@ -2004,10 +2087,10 @@ class MrLeaveHistoryScreen extends StatelessWidget {
         label: const Text('Apply Leave'),
       ),
       body: StreamBuilder<QuerySnapshot>(
+        // FIX: client-side sort — no composite index needed
         stream: db
             .collection('leave_requests')
             .where('mrId', isEqualTo: uid)
-            .orderBy('createdAt', descending: true)
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -2031,11 +2114,21 @@ class MrLeaveHistoryScreen extends StatelessWidget {
                   ]),
             );
           }
+          // client-side sort by createdAt descending (no composite index needed)
+          final leaveDocs = List.of(snapshot.data!.docs)
+            ..sort((a, b) {
+              final aTs = (a.data() as Map)['createdAt'];
+              final bTs = (b.data() as Map)['createdAt'];
+              if (aTs == null && bTs == null) return 0;
+              if (aTs == null) return 1;
+              if (bTs == null) return -1;
+              return (bTs as Timestamp).compareTo(aTs as Timestamp);
+            });
           return ListView.builder(
             padding: const EdgeInsets.all(12),
-            itemCount: snapshot.data!.docs.length,
+            itemCount: leaveDocs.length,
             itemBuilder: (context, i) {
-              final data   = snapshot.data!.docs[i].data() as Map<String, dynamic>;
+              final data   = leaveDocs[i].data() as Map<String, dynamic>;
               final status = data['status'] ?? 'pending';
               final color  = _statusColor(status);
               return Card(
@@ -2131,9 +2224,9 @@ class _MrAttendanceScreenState extends State<MrAttendanceScreen> {
 
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
+            // FIX: only range-filter on 'date' (single-field index) — mrId filtered client-side.
             stream: db
                 .collection('attendance')
-                .where('mrId', isEqualTo: uid)
                 .where('date', isGreaterThanOrEqualTo: start)
                 .where('date', isLessThanOrEqualTo: end)
                 .orderBy('date')
@@ -2143,7 +2236,10 @@ class _MrAttendanceScreenState extends State<MrAttendanceScreen> {
                 return const Center(child: CircularProgressIndicator());
               }
 
-              final docs   = snapshot.data?.docs ?? [];
+              // client-side mrId filter (mrId was removed from query to avoid composite index)
+              final allDocs = snapshot.data?.docs ?? [];
+              final docs = allDocs.where((d) =>
+              (d.data() as Map)['mrId']?.toString() == uid).toList();
               final attMap = <String, String>{
                 for (var d in docs)
                   (d.data() as Map)['date'].toString():
@@ -2298,13 +2394,19 @@ class MrAllowanceScreen extends StatelessWidget {
           final fixedAllowance = userData['fixedAllowance'] ?? 0;
 
           return StreamBuilder<QuerySnapshot>(
+            // FIX: client-side sort — no composite index needed
             stream: db
                 .collection('allowances')
                 .where('mrId', isEqualTo: uid)
-                .orderBy('month', descending: true)
                 .snapshots(),
             builder: (context, snapshot) {
-              final docs = snapshot.data?.docs ?? [];
+              // client-side sort by month descending
+              final docs = List.of(snapshot.data?.docs ?? [])
+                ..sort((a, b) {
+                  final aM = (a.data() as Map)['month']?.toString() ?? '';
+                  final bM = (b.data() as Map)['month']?.toString() ?? '';
+                  return bM.compareTo(aM);
+                });
               return SingleChildScrollView(
                 padding: const EdgeInsets.all(16),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start,
@@ -2390,10 +2492,10 @@ class MrNotificationsScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Notifications')),
       body: StreamBuilder<QuerySnapshot>(
+        // FIX: client-side sort — no composite index needed
         stream: db
             .collection('notifications')
             .where('mrId', isEqualTo: uid)
-            .orderBy('createdAt', descending: true)
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -2411,11 +2513,21 @@ class MrNotificationsScreen extends StatelessWidget {
                   ]),
             );
           }
+          // client-side sort by createdAt descending (no composite index needed)
+          final notifDocs = List.of(snapshot.data!.docs)
+            ..sort((a, b) {
+              final aTs = (a.data() as Map)['createdAt'];
+              final bTs = (b.data() as Map)['createdAt'];
+              if (aTs == null && bTs == null) return 0;
+              if (aTs == null) return 1;
+              if (bTs == null) return -1;
+              return (bTs as Timestamp).compareTo(aTs as Timestamp);
+            });
           return ListView.builder(
             padding: const EdgeInsets.all(12),
-            itemCount: snapshot.data!.docs.length,
+            itemCount: notifDocs.length,
             itemBuilder: (context, i) {
-              final data   = snapshot.data!.docs[i].data() as Map<String, dynamic>;
+              final data   = notifDocs[i].data() as Map<String, dynamic>;
               final isRead = data['isRead'] ?? false;
               return Card(
                 margin: const EdgeInsets.only(bottom: 8),

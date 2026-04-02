@@ -71,7 +71,8 @@ class AdminDashboardScreen extends StatelessWidget {
         actions: [
           IconButton(
               icon: const Icon(Icons.notifications_outlined),
-              onPressed: () {}),
+              onPressed: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const AdminLeaveApprovalsScreen()))),
         ],
       ),
       body: SingleChildScrollView(
@@ -310,14 +311,19 @@ class _AdminDoctorsScreenState extends State<AdminDoctorsScreen> {
                   .orderBy('createdAt', descending: true)
                   .snapshots(),
               builder: (context, snapshot) {
-                if (snapshot.connectionState ==
-                    ConnectionState.waiting) {
-                  return const Center(
-                      child: CircularProgressIndicator());
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
                 }
-
-                if (!snapshot.hasData ||
-                    snapshot.data!.docs.isEmpty) {
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text('Error: ${snapshot.error}',
+                          style: const TextStyle(color: Colors.red)),
+                    ),
+                  );
+                }
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
                   return Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -750,6 +756,8 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
             .doc(widget.docId)
             .update(data);
       } else {
+        // FIX: isActive field required by MR doctor list filter
+        data['isActive']  = true;
         data['createdAt'] = FieldValue.serverTimestamp();
         data['createdBy'] = _auth.currentUser!.uid;
         await _db.collection('doctors').add(data);
@@ -1377,6 +1385,18 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
     super.dispose();
   }
 
+  Color _statusColor(String s) {
+    switch (s) {
+      case 'pending':    return Colors.orange;
+      case 'approved':   return Colors.blue;
+      case 'billed':     return Colors.purple;
+      case 'dispatched': return Colors.teal;
+      case 'delivered':  return Colors.green;
+      case 'cancelled':  return Colors.red;
+      default:           return Colors.grey;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1398,26 +1418,468 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
       body: TabBarView(
         controller: _tabController,
         children: [
-          _emptyState('No pending orders'),
-          _emptyState('No approved orders'),
-          _emptyState('No dispatched orders'),
-          _emptyState('No orders yet'),
+          _OrderTab(statusFilter: 'pending',    statusColor: _statusColor),
+          _OrderTab(statusFilter: 'approved',   statusColor: _statusColor),
+          _OrderTab(statusFilter: 'dispatched', statusColor: _statusColor),
+          _OrderTab(statusFilter: null,         statusColor: _statusColor),
         ],
       ),
     );
   }
+}
 
-  Widget _emptyState(String message) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+// ─────────────────────────────────────────
+// ORDER TAB  (reusable per-status list)
+// ─────────────────────────────────────────
+class _OrderTab extends StatelessWidget {
+  final String? statusFilter;   // null = All
+  final Color Function(String) statusColor;
+  const _OrderTab({required this.statusFilter, required this.statusColor});
+
+  @override
+  Widget build(BuildContext context) {
+    // FIX: no compound index — fetch all orders, filter client-side
+    return StreamBuilder<QuerySnapshot>(
+      stream: _db.collection('orders').snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text('Error: ${snapshot.error}',
+                  style: const TextStyle(color: Colors.red)),
+            ),
+          );
+        }
+
+        // filter + sort client-side → no composite index needed
+        var docs = (snapshot.data?.docs ?? []).where((d) {
+          final data = d.data() as Map<String, dynamic>;
+          return statusFilter == null || data['status'] == statusFilter;
+        }).toList()
+          ..sort((a, b) {
+            final aTs = (a.data() as Map)['createdAt'];
+            final bTs = (b.data() as Map)['createdAt'];
+            if (aTs == null && bTs == null) return 0;
+            if (aTs == null) return 1;
+            if (bTs == null) return -1;
+            return (bTs as Timestamp).compareTo(aTs as Timestamp);
+          });
+
+        if (docs.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.inbox_outlined, size: 80, color: Colors.grey.shade300),
+                const SizedBox(height: 16),
+                Text(
+                  statusFilter != null
+                      ? 'No ${statusFilter!} orders'
+                      : 'No orders yet',
+                  style: TextStyle(color: Colors.grey.shade500, fontSize: 16),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(12),
+          itemCount: docs.length,
+          itemBuilder: (context, i) {
+            final doc    = docs[i];
+            final data   = doc.data() as Map<String, dynamic>;
+            final status = data['status'] ?? 'pending';
+            final color  = statusColor(status);
+            final items  = (data['items'] as List?)?.length ?? 0;
+            return Card(
+              margin: const EdgeInsets.only(bottom: 10),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: color.withOpacity(0.15),
+                  child: Icon(Icons.receipt_long, color: color),
+                ),
+                title: Text(
+                  'Order for ${data['doctorName'] ?? 'Unknown Doctor'}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: Text(
+                  '${data['mrId'] != null ? 'MR: ${data['mrName'] ?? data['mrId']}' : ''}'
+                      '  •  $items item(s)  •  ${data['date'] ?? ''}',
+                ),
+                trailing: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(status.toUpperCase(),
+                          style: TextStyle(color: color, fontSize: 10,
+                              fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
+                onTap: () => showDialog(
+                  context: context,
+                  builder: (_) => _AdminOrderDetailDialog(
+                      orderId: doc.id, data: data,
+                      statusColor: statusColor),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+// ─────────────────────────────────────────
+// ORDER DETAIL DIALOG  (admin — approve / dispatch / cancel)
+// ─────────────────────────────────────────
+class _AdminOrderDetailDialog extends StatelessWidget {
+  final String orderId;
+  final Map<String, dynamic> data;
+  final Color Function(String) statusColor;
+  const _AdminOrderDetailDialog(
+      {required this.orderId, required this.data, required this.statusColor});
+
+  @override
+  Widget build(BuildContext context) {
+    final status = data['status'] ?? 'pending';
+    final color  = statusColor(status);
+    final items  = (data['items'] as List?) ?? [];
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.receipt_long, color: color, size: 40),
+          const SizedBox(height: 8),
+          Text(status.toUpperCase(),
+              style: TextStyle(color: color, fontSize: 18,
+                  fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          Text('Doctor: ${data['doctorName'] ?? 'N/A'}',
+              style: const TextStyle(fontWeight: FontWeight.w600)),
+          Text('Date: ${data['date'] ?? 'N/A'}',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+          const SizedBox(height: 12),
+          const Divider(),
+          ...items.map((item) => ListTile(
+            dense: true,
+            leading: const Icon(Icons.medication, color: Color(0xFF1565C0)),
+            title: Text(item['productName'] ?? ''),
+            subtitle: Text('₹${item['price'] ?? 'N/A'}'),
+            trailing: Text('×${item['quantity']}',
+                style: const TextStyle(fontWeight: FontWeight.bold)),
+          )),
+          const Divider(),
+          if (data['remarks'] != null && data['remarks'].toString().isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text('Remarks: ${data['remarks']}',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+            ),
+          // Action buttons based on current status
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            if (status == 'pending') ...[
+              _actionBtn('Approve', Colors.blue, () async {
+                await _db.collection('orders').doc(orderId)
+                    .update({'status': 'approved'});
+                if (context.mounted) Navigator.pop(context);
+              }),
+              _actionBtn('Cancel', Colors.red, () async {
+                await _db.collection('orders').doc(orderId)
+                    .update({'status': 'cancelled'});
+                if (context.mounted) Navigator.pop(context);
+              }),
+            ],
+            if (status == 'approved')
+              _actionBtn('Mark Dispatched', Colors.teal, () async {
+                await _db.collection('orders').doc(orderId)
+                    .update({'status': 'dispatched'});
+                if (context.mounted) Navigator.pop(context);
+              }),
+            if (status == 'dispatched')
+              _actionBtn('Mark Delivered', Colors.green, () async {
+                await _db.collection('orders').doc(orderId)
+                    .update({'status': 'delivered'});
+                if (context.mounted) Navigator.pop(context);
+              }),
+            OutlinedButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
+            ),
+          ]),
+        ]),
+      ),
+    );
+  }
+
+  Widget _actionBtn(String label, Color color, VoidCallback onPressed) =>
+      ElevatedButton(
+        onPressed: onPressed,
+        style: ElevatedButton.styleFrom(
+            backgroundColor: color, foregroundColor: Colors.white),
+        child: Text(label),
+      );
+}
+
+
+// ─────────────────────────────────────────
+// ADMIN MR REPORTS SCREEN
+// View all daily reports submitted by MRs
+// ─────────────────────────────────────────
+class AdminMrReportsScreen extends StatefulWidget {
+  const AdminMrReportsScreen({super.key});
+
+  @override
+  State<AdminMrReportsScreen> createState() => _AdminMrReportsScreenState();
+}
+
+class _AdminMrReportsScreenState extends State<AdminMrReportsScreen> {
+  String _searchQuery = '';
+  String _filterMr = 'All';
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('MR Daily Reports'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () => setState(() {}),
+          ),
+        ],
+      ),
+      body: Column(
         children: [
-          Icon(Icons.inbox_outlined,
-              size: 80, color: Colors.grey.shade300),
-          const SizedBox(height: 16),
-          Text(message,
-              style: TextStyle(
-                  color: Colors.grey.shade500, fontSize: 16)),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: TextField(
+              onChanged: (val) => setState(() => _searchQuery = val.toLowerCase()),
+              decoration: InputDecoration(
+                hintText: 'Search by MR name or doctor...',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                  icon: const Icon(Icons.clear),
+                  onPressed: () => setState(() => _searchQuery = ''),
+                )
+                    : null,
+              ),
+            ),
+          ),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: _db
+                  .collection('daily_reports')
+                  .orderBy('date', descending: true)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text('Error: ${snapshot.error}',
+                          style: const TextStyle(color: Colors.red)),
+                    ),
+                  );
+                }
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.assignment_outlined, size: 80, color: Colors.grey),
+                        SizedBox(height: 16),
+                        Text('No reports submitted yet',
+                            style: TextStyle(color: Colors.grey, fontSize: 16)),
+                      ],
+                    ),
+                  );
+                }
+
+                // Get MR names for filter
+                final allReports = snapshot.data!.docs;
+
+                // Get unique MR names for filter dropdown
+                final mrNames = <String>{'All'};
+                for (final doc in allReports) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  final mrName = data['mrName']?.toString() ?? 'Unknown';
+                  mrNames.add(mrName);
+                }
+
+                // Apply filters
+                var reports = allReports.where((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  final mrName = (data['mrName'] ?? '').toString().toLowerCase();
+                  final doctorsVisited = (data['doctorsVisited'] as List?)?.join(' ').toLowerCase() ?? '';
+                  final notes = (data['notes'] ?? '').toString().toLowerCase();
+
+                  final matchesSearch = _searchQuery.isEmpty ||
+                      mrName.contains(_searchQuery) ||
+                      doctorsVisited.contains(_searchQuery) ||
+                      notes.contains(_searchQuery);
+
+                  final matchesMr = _filterMr == 'All' ||
+                      (data['mrName']?.toString() ?? '') == _filterMr;
+
+                  return matchesSearch && matchesMr;
+                }).toList();
+
+                return Column(
+                  children: [
+                    // MR Filter Dropdown
+                    if (mrNames.length > 1)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        child: Row(
+                          children: [
+                            const Text('Filter by MR: ', style: TextStyle(fontWeight: FontWeight.w500)),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: DropdownButtonFormField<String>(
+                                value: _filterMr,
+                                decoration: const InputDecoration(
+                                  isDense: true,
+                                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  border: OutlineInputBorder(),
+                                ),
+                                items: mrNames.map((name) {
+                                  return DropdownMenuItem(value: name, child: Text(name));
+                                }).toList(),
+                                onChanged: (val) => setState(() => _filterMr = val!),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (reports.isEmpty)
+                      Expanded(
+                        child: Center(
+                          child: Text('No reports match your filter',
+                              style: TextStyle(color: Colors.grey.shade500)),
+                        ),
+                      )
+                    else
+                      Expanded(
+                        child: ListView.builder(
+                          padding: const EdgeInsets.all(12),
+                          itemCount: reports.length,
+                          itemBuilder: (context, index) {
+                            final doc = reports[index];
+                            final data = doc.data() as Map<String, dynamic>;
+                            final doctorsVisited = (data['doctorsVisited'] as List?) ?? [];
+
+                            return Card(
+                              margin: const EdgeInsets.only(bottom: 10),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12)),
+                              child: ExpansionTile(
+                                leading: CircleAvatar(
+                                  backgroundColor: const Color(0xFF1565C0).withOpacity(0.1),
+                                  child: const Icon(Icons.assignment, color: Color(0xFF1565C0)),
+                                ),
+                                title: Text(
+                                  data['mrName'] ?? 'Unknown MR',
+                                  style: const TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                                subtitle: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('Date: ${data['date'] ?? 'N/A'}'),
+                                    Text('Doctors visited: ${doctorsVisited.length}',
+                                        style: const TextStyle(fontSize: 12)),
+                                  ],
+                                ),
+                                children: [
+                                  Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        const Divider(),
+                                        const SizedBox(height: 8),
+                                        // Doctors visited
+                                        const Text('Doctors Visited:',
+                                            style: TextStyle(fontWeight: FontWeight.bold)),
+                                        const SizedBox(height: 4),
+                                        ...doctorsVisited.map((d) => Padding(
+                                          padding: const EdgeInsets.only(left: 8, bottom: 4),
+                                          child: Row(
+                                            children: [
+                                              const Icon(Icons.person, size: 16, color: Colors.blue),
+                                              const SizedBox(width: 8),
+                                              Expanded(child: Text(d.toString())),
+                                            ],
+                                          ),
+                                        )),
+                                        if (doctorsVisited.isEmpty)
+                                          const Padding(
+                                            padding: EdgeInsets.only(left: 8),
+                                            child: Text('No doctors visited', style: TextStyle(color: Colors.grey)),
+                                          ),
+                                        const SizedBox(height: 12),
+                                        // Notes
+                                        if ((data['notes'] ?? '').toString().isNotEmpty) ...[
+                                          const Text('Work Summary:',
+                                              style: TextStyle(fontWeight: FontWeight.bold)),
+                                          const SizedBox(height: 4),
+                                          Container(
+                                            padding: const EdgeInsets.all(8),
+                                            decoration: BoxDecoration(
+                                              color: Colors.grey.shade50,
+                                              borderRadius: BorderRadius.circular(8),
+                                            ),
+                                            child: Text(data['notes'] ?? ''),
+                                          ),
+                                          const SizedBox(height: 12),
+                                        ],
+                                        // Follow-up
+                                        if ((data['followUp'] ?? '').toString().isNotEmpty) ...[
+                                          const Text('Follow-up Notes:',
+                                              style: TextStyle(fontWeight: FontWeight.bold)),
+                                          const SizedBox(height: 4),
+                                          Container(
+                                            padding: const EdgeInsets.all(8),
+                                            decoration: BoxDecoration(
+                                              color: Colors.orange.shade50,
+                                              borderRadius: BorderRadius.circular(8),
+                                            ),
+                                            child: Text(data['followUp'] ?? ''),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
         ],
       ),
     );
@@ -1548,6 +2010,15 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text('Error: ${snapshot.error}',
+                          style: const TextStyle(color: Colors.red)),
+                    ),
+                  );
                 }
                 if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
                   return Center(
@@ -2185,6 +2656,7 @@ class AdminProfileScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final adminEmail = _auth.currentUser?.email ?? 'Administrator';
     return Scaffold(
       appBar: AppBar(title: const Text('Manage')),
       body: SingleChildScrollView(
@@ -2199,63 +2671,77 @@ class AdminProfileScreen extends StatelessWidget {
                     colors: [Color(0xFF1565C0), Color(0xFF1E88E5)]),
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: const Column(
+              child: Column(
                 children: [
-                  CircleAvatar(
+                  const CircleAvatar(
                     radius: 40,
                     backgroundColor: Colors.white,
                     child: Icon(Icons.admin_panel_settings,
                         size: 50, color: Color(0xFF1565C0)),
                   ),
-                  SizedBox(height: 12),
-                  Text('Administrator',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold)),
-                  Text('admin@arka.com',
-                      style: TextStyle(
-                          color: Colors.white70, fontSize: 13)),
+                  const SizedBox(height: 12),
+                  const Text('Administrator',
+                      style: TextStyle(color: Colors.white,
+                          fontSize: 18, fontWeight: FontWeight.bold)),
+                  Text(adminEmail,
+                      style: const TextStyle(color: Colors.white70, fontSize: 13)),
                 ],
               ),
             ),
             const SizedBox(height: 20),
-            _menuItem(context, Icons.badge, 'MR Management',
-                Colors.blue, () {
-                  Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) =>
-                          const AdminMrManagementScreen()));
+            _menuItem(context, Icons.badge, 'MR Management', Colors.blue, () {
+              Navigator.push(context, MaterialPageRoute(
+                  builder: (_) => const AdminMrManagementScreen()));
+            }),
+            _menuItem(context, Icons.people, 'Doctor Management', Colors.green, () {
+              Navigator.push(context, MaterialPageRoute(
+                  builder: (_) => const AdminDoctorsScreen()));
+            }),
+            _menuItem(context, Icons.calendar_today, 'Attendance Records', Colors.orange, () {
+              Navigator.push(context, MaterialPageRoute(
+                  builder: (_) => const AdminAttendanceScreen()));
+            }),
+            _menuItem(context, Icons.event_busy, 'Leave Approvals', Colors.red, () {
+              Navigator.push(context, MaterialPageRoute(
+                  builder: (_) => const AdminLeaveApprovalsScreen()));
+            }),
+            _menuItem(context, Icons.account_balance_wallet,
+                'Allowance Management', Colors.purple, () {
+                  Navigator.push(context, MaterialPageRoute(
+                      builder: (_) => const AdminAllowanceScreen()));
                 }),
-            _menuItem(context, Icons.people, 'Doctor Management',
-                Colors.green, () {
-                  Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => const AdminDoctorsScreen()));
-                }),
-            _menuItem(context, Icons.calendar_today,
-                'Attendance Records', Colors.orange, () {}),
-            _menuItem(context, Icons.event_busy, 'Leave Approvals',
-                Colors.red, () {}),
-            _menuItem(
-                context,
-                Icons.account_balance_wallet,
-                'Allowance Management',
-                Colors.purple,
-                    () {}),
+            // In AdminProfileScreen, add this menu item: mr report button maybe
+            _menuItem(context, Icons.assignment, 'MR Daily Reports', Colors.teal, () {
+              Navigator.push(context, MaterialPageRoute(
+                  builder: (_) => const AdminMrReportsScreen()));
+            }),
             const SizedBox(height: 10),
-            ListTile(
-              leading: const Icon(Icons.logout, color: Colors.red),
-              title: const Text('Logout',
-                  style: TextStyle(
-                      color: Colors.red,
-                      fontWeight: FontWeight.w600)),
-              onTap: () async {
-                isLoggingOut = true;
-                await _auth.signOut();
-              },
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.logout, color: Colors.red),
+                title: const Text('Logout',
+                    style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600)),
+                onTap: () async {
+                  final confirm = await showDialog<bool>(
+                    context: context,
+                    builder: (_) => AlertDialog(
+                      title: const Text('Logout'),
+                      content: const Text('Are you sure you want to logout?'),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(context, false),
+                            child: const Text('Cancel')),
+                        TextButton(onPressed: () => Navigator.pop(context, true),
+                            child: const Text('Logout',
+                                style: TextStyle(color: Colors.red))),
+                      ],
+                    ),
+                  );
+                  if (confirm == true) {
+                    isLoggingOut = true;
+                    await _auth.signOut();
+                  }
+                },
+              ),
             ),
           ],
         ),
@@ -2279,6 +2765,459 @@ class AdminProfileScreen extends StatelessWidget {
         trailing:
         const Icon(Icons.chevron_right, color: Colors.grey),
         onTap: onTap,
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────
+// ADMIN ATTENDANCE SCREEN
+// Shows all MRs with their monthly attendance.
+// No compound index: fetches by date range only, filters mrId client-side.
+// ─────────────────────────────────────────
+class AdminAttendanceScreen extends StatefulWidget {
+  const AdminAttendanceScreen({super.key});
+  @override
+  State<AdminAttendanceScreen> createState() => _AdminAttendanceScreenState();
+}
+
+class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
+  int _year  = DateTime.now().year;
+  int _month = DateTime.now().month;
+  final _months = ['Jan','Feb','Mar','Apr','May','Jun',
+    'Jul','Aug','Sep','Oct','Nov','Dec'];
+  String _padded(int n) => n.toString().padLeft(2, '0');
+
+  @override
+  Widget build(BuildContext context) {
+    final start      = '$_year-${_padded(_month)}-01';
+    final daysInMonth = DateUtils.getDaysInMonth(_year, _month);
+    final end        = '$_year-${_padded(_month)}-${_padded(daysInMonth)}';
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Attendance Records')),
+      body: Column(children: [
+        // Month selector
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+          child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            IconButton(
+              onPressed: () => setState(() {
+                if (_month == 1) { _month = 12; _year--; }
+                else { _month--; }
+              }),
+              icon: const Icon(Icons.chevron_left),
+            ),
+            Text('${_months[_month - 1]} $_year',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            IconButton(
+              onPressed: () => setState(() {
+                if (_month == 12) { _month = 1; _year++; }
+                else { _month++; }
+              }),
+              icon: const Icon(Icons.chevron_right),
+            ),
+          ]),
+        ),
+        // MR list with attendance summary
+        Expanded(
+          child: StreamBuilder<QuerySnapshot>(
+            stream: _db.collection('users').where('role', isEqualTo: 'mr').snapshots(),
+            builder: (context, mrSnap) {
+              if (mrSnap.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (!mrSnap.hasData || mrSnap.data!.docs.isEmpty) {
+                return const Center(child: Text('No MRs found.'));
+              }
+              final mrs = mrSnap.data!.docs;
+              return StreamBuilder<QuerySnapshot>(
+                // single-field range on date — no compound index needed
+                stream: _db
+                    .collection('attendance')
+                    .where('date', isGreaterThanOrEqualTo: start)
+                    .where('date', isLessThanOrEqualTo: end)
+                    .snapshots(),
+                builder: (context, attSnap) {
+                  // Build a map: mrId → {date → status}
+                  final attMap = <String, Map<String, String>>{};
+                  for (final d in attSnap.data?.docs ?? []) {
+                    final data  = d.data() as Map<String, dynamic>;
+                    final mrId  = data['mrId']?.toString() ?? '';
+                    final date  = data['date']?.toString() ?? '';
+                    final status = data['status']?.toString() ?? '';
+                    if (mrId.isNotEmpty && date.isNotEmpty) {
+                      attMap.putIfAbsent(mrId, () => {})[date] = status;
+                    }
+                  }
+                  return ListView.builder(
+                    padding: const EdgeInsets.all(12),
+                    itemCount: mrs.length,
+                    itemBuilder: (context, i) {
+                      final mr   = mrs[i].data() as Map<String, dynamic>;
+                      final mrId = mrs[i].id;
+                      final att  = attMap[mrId] ?? {};
+                      final present = att.values.where((s) => s == 'present').length;
+                      final absent  = att.values.where((s) => s == 'absent').length;
+                      final leave   = att.values.where((s) => s == 'leave').length;
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        child: ExpansionTile(
+                          leading: const CircleAvatar(
+                            backgroundColor: Color(0xFFE3F2FD),
+                            child: Icon(Icons.person, color: Color(0xFF1565C0)),
+                          ),
+                          title: Text(mr['name'] ?? 'Unknown',
+                              style: const TextStyle(fontWeight: FontWeight.bold)),
+                          subtitle: Text('📍 ${mr['area'] ?? 'N/A'}'),
+                          trailing: Wrap(spacing: 8, children: [
+                            _attChip('P: $present', Colors.green),
+                            _attChip('A: $absent',  Colors.red),
+                            _attChip('L: $leave',   Colors.orange),
+                          ]),
+                          children: [
+                            // Calendar grid
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                              child: GridView.builder(
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: 7, crossAxisSpacing: 4, mainAxisSpacing: 4,
+                                ),
+                                itemCount: daysInMonth,
+                                itemBuilder: (context, d) {
+                                  final day    = d + 1;
+                                  final key    = '$_year-${_padded(_month)}-${_padded(day)}';
+                                  final dt     = DateTime(_year, _month, day);
+                                  final isSun  = dt.weekday == DateTime.sunday;
+                                  final status = att[key];
+                                  Color bg = isSun ? Colors.grey.shade200 : Colors.grey.shade100;
+                                  if (!isSun && status == 'present') bg = Colors.green.shade100;
+                                  if (!isSun && status == 'absent')  bg = Colors.red.shade100;
+                                  if (!isSun && status == 'leave')   bg = Colors.orange.shade100;
+                                  return Container(
+                                    decoration: BoxDecoration(
+                                        color: bg, borderRadius: BorderRadius.circular(4)),
+                                    child: Center(
+                                      child: Text('$day',
+                                          style: TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                              color: isSun ? Colors.grey.shade400 : Colors.black87)),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _attChip(String label, Color color) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+    decoration: BoxDecoration(
+        color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(10)),
+    child: Text(label, style: TextStyle(fontSize: 10, color: color,
+        fontWeight: FontWeight.bold)),
+  );
+}
+
+// ─────────────────────────────────────────
+// ADMIN LEAVE APPROVALS SCREEN
+// ─────────────────────────────────────────
+class AdminLeaveApprovalsScreen extends StatelessWidget {
+  const AdminLeaveApprovalsScreen({super.key});
+
+  Color _statusColor(String s) {
+    switch (s) {
+      case 'approved': return Colors.green;
+      case 'rejected': return Colors.red;
+      default:         return Colors.orange;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Leave Approvals'),
+          bottom: const TabBar(
+            labelColor: Colors.white,
+            unselectedLabelColor: Colors.white60,
+            indicatorColor: Colors.white,
+            tabs: [Tab(text: 'Pending'), Tab(text: 'All')],
+          ),
+        ),
+        body: TabBarView(children: [
+          _LeaveList(statusFilter: 'pending',  statusColor: _statusColor),
+          _LeaveList(statusFilter: null,       statusColor: _statusColor),
+        ]),
+      ),
+    );
+  }
+}
+
+class _LeaveList extends StatelessWidget {
+  final String? statusFilter;
+  final Color Function(String) statusColor;
+  const _LeaveList({required this.statusFilter, required this.statusColor});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot>(
+      // No compound index: fetch all, filter + sort client-side
+      stream: _db.collection('leave_requests').snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text('Error: ${snapshot.error}',
+              style: const TextStyle(color: Colors.red)));
+        }
+
+        final docs = (snapshot.data?.docs ?? []).where((d) {
+          final data = d.data() as Map<String, dynamic>;
+          return statusFilter == null || data['status'] == statusFilter;
+        }).toList()
+          ..sort((a, b) {
+            final aTs = (a.data() as Map)['createdAt'];
+            final bTs = (b.data() as Map)['createdAt'];
+            if (aTs == null && bTs == null) return 0;
+            if (aTs == null) return 1;
+            if (bTs == null) return -1;
+            return (bTs as Timestamp).compareTo(aTs as Timestamp);
+          });
+
+        if (docs.isEmpty) {
+          return Center(
+            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Icon(Icons.event_busy_outlined, size: 80, color: Colors.grey.shade300),
+              const SizedBox(height: 16),
+              Text(statusFilter != null ? 'No pending leave requests' : 'No leave requests',
+                  style: TextStyle(color: Colors.grey.shade500, fontSize: 16)),
+            ]),
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(12),
+          itemCount: docs.length,
+          itemBuilder: (context, i) {
+            final doc    = docs[i];
+            final data   = doc.data() as Map<String, dynamic>;
+            final status = data['status'] ?? 'pending';
+            final color  = statusColor(status);
+            return Card(
+              margin: const EdgeInsets.only(bottom: 10),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [
+                    CircleAvatar(
+                      backgroundColor: color.withOpacity(0.15),
+                      child: Icon(Icons.event_busy, color: color),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(data['mrName'] ?? 'Unknown MR',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                      Text('${data['fromDate']} → ${data['toDate']}  •  ${data['days']} day(s)',
+                          style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                      Text(data['reason'] ?? '',
+                          style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                          maxLines: 2, overflow: TextOverflow.ellipsis),
+                    ])),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                          color: color.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(20)),
+                      child: Text(status.toUpperCase(),
+                          style: TextStyle(color: color, fontSize: 11,
+                              fontWeight: FontWeight.bold)),
+                    ),
+                  ]),
+                  if (status == 'pending') ...[
+                    const SizedBox(height: 12),
+                    Row(children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            await _db.collection('leave_requests')
+                                .doc(doc.id).update({'status': 'rejected'});
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                                  content: Text('Leave rejected.'),
+                                  backgroundColor: Colors.red));
+                            }
+                          },
+                          icon: const Icon(Icons.close, size: 16),
+                          label: const Text('Reject'),
+                          style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.red,
+                              side: const BorderSide(color: Colors.red)),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () async {
+                            await _db.collection('leave_requests')
+                                .doc(doc.id).update({'status': 'approved'});
+                            // Mark attendance as 'leave' for each day
+                            final from = DateTime.parse(data['fromDate']);
+                            final to   = DateTime.parse(data['toDate']);
+                            final mrId = data['mrId'] ?? '';
+                            if (mrId.isNotEmpty) {
+                              for (var d = from;
+                              !d.isAfter(to);
+                              d = d.add(const Duration(days: 1))) {
+                                final dateKey =
+                                    '${d.year}-${d.month.toString().padLeft(2,'0')}-${d.day.toString().padLeft(2,'0')}';
+                                await _db.collection('attendance')
+                                    .doc('${mrId}_$dateKey')
+                                    .set({
+                                  'mrId':      mrId,
+                                  'date':      dateKey,
+                                  'status':    'leave',
+                                  'updatedAt': FieldValue.serverTimestamp(),
+                                }, SetOptions(merge: true));
+                              }
+                            }
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                                  content: Text('Leave approved!'),
+                                  backgroundColor: Colors.green));
+                            }
+                          },
+                          icon: const Icon(Icons.check, size: 16),
+                          label: const Text('Approve'),
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                        ),
+                      ),
+                    ]),
+                  ],
+                ]),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+// ─────────────────────────────────────────
+// ADMIN ALLOWANCE MANAGEMENT SCREEN
+// ─────────────────────────────────────────
+class AdminAllowanceScreen extends StatelessWidget {
+  const AdminAllowanceScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Allowance Management')),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: _db.collection('users').where('role', isEqualTo: 'mr').snapshots(),
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (!snap.hasData || snap.data!.docs.isEmpty) {
+            return const Center(child: Text('No MRs found.'));
+          }
+          return ListView.builder(
+            padding: const EdgeInsets.all(12),
+            itemCount: snap.data!.docs.length,
+            itemBuilder: (context, i) {
+              final doc  = snap.data!.docs[i];
+              final mr   = doc.data() as Map<String, dynamic>;
+              final fixed = mr['fixedAllowance'] ?? 0;
+              return Card(
+                margin: const EdgeInsets.only(bottom: 10),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: ListTile(
+                  leading: const CircleAvatar(
+                    backgroundColor: Color(0xFFE3F2FD),
+                    child: Icon(Icons.person, color: Color(0xFF1565C0)),
+                  ),
+                  title: Text(mr['name'] ?? 'Unknown',
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text('📍 ${mr['area'] ?? 'N/A'}'),
+                  trailing: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text('₹$fixed/mo',
+                          style: const TextStyle(fontWeight: FontWeight.bold,
+                              color: Color(0xFF1565C0), fontSize: 15)),
+                      const Text('fixed', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                    ],
+                  ),
+                  onTap: () => _showAllowanceDialog(context, doc.id, mr, fixed),
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  void _showAllowanceDialog(BuildContext context, String mrDocId,
+      Map<String, dynamic> mr, dynamic currentFixed) {
+    final ctrl = TextEditingController(text: '$currentFixed');
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text('Set Allowance — ${mr['name'] ?? ''}'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('Current fixed allowance: ₹$currentFixed/month',
+              style: const TextStyle(color: Colors.grey)),
+          const SizedBox(height: 12),
+          TextField(
+            controller: ctrl,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'Fixed Monthly Allowance (₹)',
+              prefixIcon: Icon(Icons.currency_rupee),
+            ),
+          ),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () async {
+              final newAmount = int.tryParse(ctrl.text.trim()) ?? 0;
+              await _db.collection('users').doc(mrDocId)
+                  .update({'fixedAllowance': newAmount});
+              if (context.mounted) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text('Allowance set to ₹$newAmount/month'),
+                    backgroundColor: Colors.green));
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
       ),
     );
   }
