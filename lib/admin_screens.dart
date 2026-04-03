@@ -69,10 +69,41 @@ class AdminDashboardScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Admin Dashboard'),
         actions: [
-          IconButton(
-              icon: const Icon(Icons.notifications_outlined),
-              onPressed: () => Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => const AdminLeaveApprovalsScreen()))),
+          StreamBuilder<QuerySnapshot>(
+            stream: _db
+                .collection('leave_requests')
+                .where('status', isEqualTo: 'pending')
+                .snapshots(),
+            builder: (context, snap) {
+              final pending = snap.hasData ? snap.data!.docs.length : 0;
+              return Stack(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.notifications_outlined),
+                    onPressed: () => Navigator.push(context,
+                        MaterialPageRoute(
+                            builder: (_) => const AdminLeaveApprovalsScreen())),
+                  ),
+                  if (pending > 0)
+                    Positioned(
+                      right: 6, top: 6,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(
+                            color: Colors.red, shape: BoxShape.circle),
+                        child: Text(
+                          pending > 9 ? '9+' : '$pending',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
         ],
       ),
       body: SingleChildScrollView(
@@ -139,33 +170,67 @@ class AdminDashboardScreen extends StatelessWidget {
                             final pendingLeaves = leaveSnap.hasData
                                 ? leaveSnap.data!.docs.length
                                 : 0;
-                            return GridView.count(
-                              crossAxisCount: 2,
-                              shrinkWrap: true,
-                              physics:
-                              const NeverScrollableScrollPhysics(),
-                              crossAxisSpacing: 12,
-                              mainAxisSpacing: 12,
-                              childAspectRatio: 1.6,
-                              children: [
-                                _statCard('Total MRs', '$mrCount',
-                                    Icons.badge, Colors.blue),
-                                _statCard(
-                                    'Total Doctors',
-                                    '$doctorCount',
-                                    Icons.people,
-                                    Colors.green),
-                                _statCard(
-                                    'Pending Orders',
-                                    '$pendingOrders',
-                                    Icons.pending_actions,
-                                    Colors.orange),
-                                _statCard(
-                                    'Leave Requests',
-                                    '$pendingLeaves',
-                                    Icons.event_busy,
-                                    Colors.red),
-                              ],
+                            final today =
+                                '${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().day.toString().padLeft(2, '0')}';
+                            return StreamBuilder<QuerySnapshot>(
+                              stream: _db
+                                  .collection('orders')
+                                  .where('status', isEqualTo: 'dispatched')
+                                  .snapshots(),
+                              builder: (context, dispatchSnap) {
+                                final dispatched = dispatchSnap.hasData
+                                    ? dispatchSnap.data!.docs.length
+                                    : 0;
+                                return StreamBuilder<QuerySnapshot>(
+                                  stream: _db
+                                      .collection('daily_reports')
+                                      .where('date', isEqualTo: today)
+                                      .snapshots(),
+                                  builder: (context, reportSnap) {
+                                    final todayReports = reportSnap.hasData
+                                        ? reportSnap.data!.docs.length
+                                        : 0;
+                                    return GridView.count(
+                                      crossAxisCount: 2,
+                                      shrinkWrap: true,
+                                      physics:
+                                      const NeverScrollableScrollPhysics(),
+                                      crossAxisSpacing: 12,
+                                      mainAxisSpacing: 12,
+                                      childAspectRatio: 1.6,
+                                      children: [
+                                        _statCard('Total MRs', '$mrCount',
+                                            Icons.badge, Colors.blue),
+                                        _statCard(
+                                            'Total Doctors',
+                                            '$doctorCount',
+                                            Icons.people,
+                                            Colors.green),
+                                        _statCard(
+                                            'Pending Orders',
+                                            '$pendingOrders',
+                                            Icons.pending_actions,
+                                            Colors.orange),
+                                        _statCard(
+                                            'Leave Requests',
+                                            '$pendingLeaves',
+                                            Icons.event_busy,
+                                            Colors.red),
+                                        _statCard(
+                                            'Dispatched',
+                                            '$dispatched',
+                                            Icons.local_shipping,
+                                            Colors.teal),
+                                        _statCard(
+                                            'Reports Today',
+                                            '$todayReports',
+                                            Icons.assignment_turned_in,
+                                            Colors.purple),
+                                      ],
+                                    );
+                                  },
+                                );
+                              },
                             );
                           },
                         );
@@ -178,6 +243,7 @@ class AdminDashboardScreen extends StatelessWidget {
           ],
         ),
       ),
+
     );
   }
 
@@ -1101,9 +1167,30 @@ class AdminMrManagementScreen extends StatelessWidget {
                         color:
                         isActive ? Colors.blue : Colors.grey),
                   ),
-                  title: Text(mr['name'] ?? 'Unknown',
-                      style:
-                      const TextStyle(fontWeight: FontWeight.bold)),
+                  title: Row(children: [
+                    Expanded(
+                      child: Text(mr['name'] ?? 'Unknown',
+                          style:
+                          const TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: isActive
+                            ? Colors.green.withOpacity(0.1)
+                            : Colors.red.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        isActive ? 'Active' : 'Inactive',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: isActive ? Colors.green : Colors.red,
+                        ),
+                      ),
+                    ),
+                  ]),
                   subtitle: Text(
                       '${mr['email']}\n📍 ${mr['area'] ?? 'N/A'}'),
                   isThreeLine: true,
@@ -1111,8 +1198,17 @@ class AdminMrManagementScreen extends StatelessWidget {
                     itemBuilder: (_) => [
                       PopupMenuItem(
                           value: 'toggle',
-                          child: Text(
-                              isActive ? 'Deactivate' : 'Activate')),
+                          child: Row(children: [
+                            Icon(
+                              isActive ? Icons.block : Icons.check_circle,
+                              color: isActive ? Colors.red : Colors.green,
+                              size: 18,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(isActive ? 'Deactivate' : 'Activate',
+                                style: TextStyle(
+                                    color: isActive ? Colors.red : Colors.green)),
+                          ])),
                     ],
                     onSelected: (value) async {
                       if (value == 'toggle') {
@@ -1120,6 +1216,14 @@ class AdminMrManagementScreen extends StatelessWidget {
                             .collection('users')
                             .doc(docId)
                             .update({'isActive': !isActive});
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                            content: Text(isActive
+                                ? '${mr['name']} deactivated'
+                                : '${mr['name']} activated'),
+                            backgroundColor: isActive ? Colors.red : Colors.green,
+                          ));
+                        }
                       }
                     },
                   ),
@@ -1376,7 +1480,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
   }
 
   @override
@@ -1410,6 +1514,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
           tabs: const [
             Tab(text: 'Pending'),
             Tab(text: 'Approved'),
+            Tab(text: 'Billed'),
             Tab(text: 'Dispatched'),
             Tab(text: 'All'),
           ],
@@ -1420,6 +1525,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
         children: [
           _OrderTab(statusFilter: 'pending',    statusColor: _statusColor),
           _OrderTab(statusFilter: 'approved',   statusColor: _statusColor),
+          _OrderTab(statusFilter: 'billed',     statusColor: _statusColor),
           _OrderTab(statusFilter: 'dispatched', statusColor: _statusColor),
           _OrderTab(statusFilter: null,         statusColor: _statusColor),
         ],
@@ -1591,25 +1697,178 @@ class _AdminOrderDetailDialog extends StatelessWidget {
               child: Text('Remarks: ${data['remarks']}',
                   style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
             ),
+          if (data['billNumber'] != null && data['billNumber'].toString().isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.purple.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.purple.shade200),
+                ),
+                child: Row(children: [
+                  const Icon(Icons.receipt, color: Colors.purple, size: 16),
+                  const SizedBox(width: 8),
+                  Text('Bill No: ${data['billNumber']}',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.bold, color: Colors.purple)),
+                ]),
+              ),
+            ),
           // Action buttons based on current status
           Wrap(spacing: 8, runSpacing: 8, children: [
             if (status == 'pending') ...[
               _actionBtn('Approve', Colors.blue, () async {
                 await _db.collection('orders').doc(orderId)
-                    .update({'status': 'approved'});
+                    .update({'status': 'approved', 'approvedAt': FieldValue.serverTimestamp()});
+                // Notify MR
+                final mrId = data['mrId']?.toString() ?? '';
+                if (mrId.isNotEmpty) {
+                  await _db.collection('notifications').add({
+                    'mrId':      mrId,
+                    'title':     'Order Approved ✅',
+                    'body':      'Your order for ${data['doctorName'] ?? 'doctor'} has been approved.',
+                    'type':      'order_approved',
+                    'orderId':   orderId,
+                    'isRead':    false,
+                    'createdAt': FieldValue.serverTimestamp(),
+                  });
+                }
                 if (context.mounted) Navigator.pop(context);
               }),
               _actionBtn('Cancel', Colors.red, () async {
                 await _db.collection('orders').doc(orderId)
                     .update({'status': 'cancelled'});
+                // Notify MR
+                final mrId = data['mrId']?.toString() ?? '';
+                if (mrId.isNotEmpty) {
+                  await _db.collection('notifications').add({
+                    'mrId':      mrId,
+                    'title':     'Order Cancelled ❌',
+                    'body':      'Your order for ${data['doctorName'] ?? 'doctor'} was cancelled.',
+                    'type':      'order_cancelled',
+                    'orderId':   orderId,
+                    'isRead':    false,
+                    'createdAt': FieldValue.serverTimestamp(),
+                  });
+                }
                 if (context.mounted) Navigator.pop(context);
               }),
             ],
             if (status == 'approved')
+              _actionBtn('Generate Bill', Colors.purple, () async {
+                final billCtrl = TextEditingController();
+                final billNo = await showDialog<String>(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                    title: const Text('Generate Bill'),
+                    content: Column(mainAxisSize: MainAxisSize.min, children: [
+                      const Text('Enter bill number to mark this order as billed.',
+                          style: TextStyle(color: Colors.grey, fontSize: 13)),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: billCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Bill Number',
+                          prefixIcon: Icon(Icons.receipt),
+                        ),
+                      ),
+                    ]),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(context),
+                          child: const Text('Cancel')),
+                      ElevatedButton(
+                        onPressed: () => Navigator.pop(context, billCtrl.text.trim()),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.purple),
+                        child: const Text('Mark Billed'),
+                      ),
+                    ],
+                  ),
+                );
+                if (billNo != null && billNo.isNotEmpty) {
+                  await _db.collection('orders').doc(orderId).update({
+                    'status': 'billed',
+                    'billNumber': billNo,
+                    'billedAt': FieldValue.serverTimestamp(),
+                  });
+                  final mrId = data['mrId']?.toString() ?? '';
+                  if (mrId.isNotEmpty) {
+                    await _db.collection('notifications').add({
+                      'mrId':      mrId,
+                      'title':     'Order Billed 🧾',
+                      'body':      'Bill #$billNo generated for your order (${data['doctorName'] ?? 'doctor'}).',
+                      'type':      'order_billed',
+                      'orderId':   orderId,
+                      'isRead':    false,
+                      'createdAt': FieldValue.serverTimestamp(),
+                    });
+                  }
+                  if (context.mounted) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text('✅ Bill #$billNo generated!'),
+                        backgroundColor: Colors.purple));
+                  }
+                }
+              }),
+            if (status == 'billed')
               _actionBtn('Mark Dispatched', Colors.teal, () async {
-                await _db.collection('orders').doc(orderId)
-                    .update({'status': 'dispatched'});
-                if (context.mounted) Navigator.pop(context);
+                // 1. Update order status → dispatched
+                // 2. Deduct each item's quantity from products stock
+                try {
+                  await _db.runTransaction((txn) async {
+                    // Read all product docs first (reads must come before writes in txn)
+                    final productRefs = <String, DocumentReference>{};
+                    final productSnaps = <String, DocumentSnapshot>{};
+                    for (final item in items) {
+                      final pid = item['productId']?.toString() ?? '';
+                      if (pid.isNotEmpty && !productRefs.containsKey(pid)) {
+                        final ref = _db.collection('products').doc(pid);
+                        productRefs[pid] = ref;
+                        productSnaps[pid] = await txn.get(ref);
+                      }
+                    }
+                    // Now do all writes
+                    txn.update(_db.collection('orders').doc(orderId),
+                        {'status': 'dispatched', 'dispatchedAt': FieldValue.serverTimestamp()});
+                    for (final item in items) {
+                      final pid = item['productId']?.toString() ?? '';
+                      if (pid.isEmpty) continue;
+                      final snap = productSnaps[pid];
+                      if (snap == null || !snap.exists) continue;
+                      final currentStock =
+                          ((snap.data() as Map<String, dynamic>)['stock'] as num?)?.toInt() ?? 0;
+                      final ordered = (item['quantity'] as num?)?.toInt() ?? 0;
+                      final newStock = (currentStock - ordered).clamp(0, 999999);
+                      txn.update(productRefs[pid]!, {'stock': newStock});
+                    }
+                  });
+                  // Send in-app notification to MR
+                  final mrId = data['mrId']?.toString() ?? '';
+                  if (mrId.isNotEmpty) {
+                    await _db.collection('notifications').add({
+                      'mrId':      mrId,
+                      'title':     'Order Dispatched 🚚',
+                      'body':      'Your order for ${data['doctorName'] ?? 'doctor'} has been dispatched.',
+                      'type':      'order_dispatched',
+                      'orderId':   orderId,
+                      'isRead':    false,
+                      'createdAt': FieldValue.serverTimestamp(),
+                    });
+                  }
+                  if (context.mounted) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text('✅ Order dispatched & stock updated!'),
+                        backgroundColor: Colors.teal));
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text('Error: $e'), backgroundColor: Colors.red));
+                  }
+                }
               }),
             if (status == 'dispatched')
               _actionBtn('Mark Delivered', Colors.green, () async {
@@ -2715,6 +2974,10 @@ class AdminProfileScreen extends StatelessWidget {
               Navigator.push(context, MaterialPageRoute(
                   builder: (_) => const AdminMrReportsScreen()));
             }),
+            _menuItem(context, Icons.lock_outline, 'Change Password', Colors.blueGrey, () {
+              Navigator.push(context, MaterialPageRoute(
+                  builder: (_) => const AdminChangePasswordScreen()));
+            }),
             const SizedBox(height: 10),
             Card(
               child: ListTile(
@@ -3221,4 +3484,120 @@ class AdminAllowanceScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+// ─────────────────────────────────────────
+// ADMIN CHANGE PASSWORD SCREEN
+// ─────────────────────────────────────────
+class AdminChangePasswordScreen extends StatefulWidget {
+  const AdminChangePasswordScreen({super.key});
+
+  @override
+  State<AdminChangePasswordScreen> createState() =>
+      _AdminChangePasswordScreenState();
+}
+
+class _AdminChangePasswordScreenState
+    extends State<AdminChangePasswordScreen> {
+  final _currentCtrl  = TextEditingController();
+  final _newCtrl      = TextEditingController();
+  final _confirmCtrl  = TextEditingController();
+  bool _loading        = false;
+  bool _obscureCurrent = true;
+  bool _obscureNew     = true;
+  bool _obscureConfirm = true;
+
+  @override
+  void dispose() {
+    _currentCtrl.dispose();
+    _newCtrl.dispose();
+    _confirmCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _changePassword() async {
+    if (_newCtrl.text != _confirmCtrl.text) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('New passwords do not match.')));
+      return;
+    }
+    if (_newCtrl.text.length < 6) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Password must be at least 6 characters.')));
+      return;
+    }
+    setState(() => _loading = true);
+    try {
+      final user = _auth.currentUser!;
+      final cred = EmailAuthProvider.credential(
+          email: user.email!, password: _currentCtrl.text);
+      await user.reauthenticateWithCredential(cred);
+      await user.updatePassword(_newCtrl.text);
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Password changed successfully!'),
+            backgroundColor: Colors.green));
+      }
+    } on FirebaseAuthException catch (e) {
+      String msg = 'Error changing password.';
+      if (e.code == 'wrong-password' || e.code == 'invalid-credential') {
+        msg = 'Current password is incorrect.';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg), backgroundColor: Colors.red));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Change Password')),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(children: [
+          const SizedBox(height: 20),
+          _passwordField('Current Password', _currentCtrl, _obscureCurrent,
+                  () => setState(() => _obscureCurrent = !_obscureCurrent)),
+          const SizedBox(height: 16),
+          _passwordField('New Password', _newCtrl, _obscureNew,
+                  () => setState(() => _obscureNew = !_obscureNew)),
+          const SizedBox(height: 16),
+          _passwordField('Confirm New Password', _confirmCtrl, _obscureConfirm,
+                  () => setState(() => _obscureConfirm = !_obscureConfirm)),
+          const SizedBox(height: 30),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _loading ? null : _changePassword,
+              child: _loading
+                  ? const SizedBox(
+                  width: 20, height: 20,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white))
+                  : const Text('Update Password'),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _passwordField(String label, TextEditingController ctrl,
+      bool obscure, VoidCallback toggle) =>
+      TextField(
+        controller: ctrl,
+        obscureText: obscure,
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: const Icon(Icons.lock_outline),
+          suffixIcon: IconButton(
+            icon: Icon(obscure ? Icons.visibility_off : Icons.visibility),
+            onPressed: toggle,
+          ),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
 }

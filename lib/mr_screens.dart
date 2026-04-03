@@ -4,6 +4,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 import 'auth.dart';
 
+String? _activeCheckInDoctorId;
+String? _activeCheckInDoctorName;
+DateTime? _activeCheckInTime;
+
 // ─────────────────────────────────────────
 // MR MAIN SCREEN WITH BOTTOM NAVIGATION
 // ─────────────────────────────────────────
@@ -157,10 +161,41 @@ class _MrDashboardScreenState extends State<MrDashboardScreen> {
       appBar: AppBar(
         title: const Text('MR Dashboard'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.notifications_outlined),
-            onPressed: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const MrNotificationsScreen())),
+          StreamBuilder<QuerySnapshot>(
+            stream: db
+                .collection('notifications')
+                .where('mrId', isEqualTo: auth.currentUser?.uid ?? '')
+                .where('isRead', isEqualTo: false)
+                .snapshots(),
+            builder: (context, snap) {
+              final unread = snap.hasData ? snap.data!.docs.length : 0;
+              return Stack(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.notifications_outlined),
+                    onPressed: () => Navigator.push(context,
+                        MaterialPageRoute(
+                            builder: (_) => const MrNotificationsScreen())),
+                  ),
+                  if (unread > 0)
+                    Positioned(
+                      right: 6, top: 6,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(
+                            color: Colors.red, shape: BoxShape.circle),
+                        child: Text(
+                          unread > 9 ? '9+' : '$unread',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -1064,8 +1099,9 @@ class MrOrdersScreen extends StatelessWidget {
     );
   }
 }
+
 // ─────────────────────────────────────────
-// MR PLACE ORDER SCREEN (FIXED)
+// MR PLACE ORDER SCREEN (with validation)
 // ─────────────────────────────────────────
 class MrPlaceOrderScreen extends StatefulWidget {
   final String? preselectedDoctorId;
@@ -1092,10 +1128,81 @@ class _MrPlaceOrderScreenState extends State<MrPlaceOrderScreen> {
   @override
   void initState() {
     super.initState();
+
+    // Check if this order is coming from a valid check-in
+    final hasValidCheckIn = _validateCheckInSession();
+
+    if (!hasValidCheckIn && widget.preselectedDoctorId == null) {
+      // No valid check-in session and no doctor preselected - show error
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showOrderBlockedDialog();
+      });
+    }
+
     _selectedDoctorId = widget.preselectedDoctorId;
     _selectedDoctorName = widget.preselectedDoctorName;
     debugPrint('Preselected doctor: $_selectedDoctorName ($_selectedDoctorId)');
     _loadData();
+  }
+
+  bool _validateCheckInSession() {
+    // Check if there's an active check-in session (within last 30 minutes)
+    if (_activeCheckInDoctorId != null && _activeCheckInTime != null) {
+      final minutesSinceCheckIn = DateTime.now().difference(_activeCheckInTime!).inMinutes;
+      if (minutesSinceCheckIn <= 30) {
+        return true;
+      } else {
+        // Session expired
+        _activeCheckInDoctorId = null;
+        _activeCheckInDoctorName = null;
+        _activeCheckInTime = null;
+      }
+    }
+    return false;
+  }
+
+  void _showOrderBlockedDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.block, color: Colors.red, size: 28),
+            SizedBox(width: 8),
+            Text('Order Not Allowed'),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'You can only place orders after:',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 12),
+            Text('✓ Checking in with a doctor'),
+            Text('✓ Being within 200m of the doctor\'s clinic'),
+            SizedBox(height: 12),
+            Text(
+              'Please visit a doctor\'s clinic, check in, then place your order.',
+              style: TextStyle(fontSize: 13, color: Colors.orange),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.pop(context); // Close order screen
+            },
+            child: const Text('Go Back'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _loadData() async {
@@ -1136,6 +1243,29 @@ class _MrPlaceOrderScreenState extends State<MrPlaceOrderScreen> {
           const SnackBar(content: Text('Please select a doctor first.')));
       return;
     }
+
+    // VALIDATION: Check if this doctor was actually checked in today
+    final uid = auth.currentUser!.uid;
+    final today = _dateKey(DateTime.now());
+
+    final visitCheck = await db
+        .collection('visits')
+        .where('mrId', isEqualTo: uid)
+        .where('doctorId', isEqualTo: _selectedDoctorId)
+        .where('date', isEqualTo: today)
+        .get();
+
+    if (visitCheck.docs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('❌ You must check in with this doctor today before placing an order!'),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 4),
+        ),
+      );
+      return;
+    }
+
     final orderItems = _quantities.entries
         .where((e) => e.value > 0)
         .map((e) => {
@@ -1150,19 +1280,57 @@ class _MrPlaceOrderScreenState extends State<MrPlaceOrderScreen> {
           const SnackBar(content: Text('Add at least one product.')));
       return;
     }
+
     setState(() => _submitting = true);
     try {
-      final uid = auth.currentUser!.uid;
-      await db.collection('orders').add({
-        'mrId': uid,
-        'doctorId': _selectedDoctorId,
-        'doctorName': _selectedDoctorName,
-        'items': orderItems,
-        'remarks': _remarksCtrl.text.trim(),
-        'status': 'pending',
-        'date': _dateKey(DateTime.now()),
-        'createdAt': FieldValue.serverTimestamp(),
+      final userDoc = await db.collection('users').doc(uid).get();
+      final mrName = userDoc.data()?['name'] ?? '';
+
+      // Verify stock before placing order
+      for (final item in _quantities.entries.where((e) => e.value > 0)) {
+        final productDoc = await db.collection('products').doc(item.key).get();
+        final currentStock = (productDoc.data() as Map<String, dynamic>?)?['stock'] ?? 0;
+        if (currentStock < item.value) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Insufficient stock for ${_productCache[item.key]?['name']}. Available: $currentStock'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          setState(() => _submitting = false);
+          return;
+        }
+      }
+
+      // Use transaction to reduce stock and place order
+      await db.runTransaction((transaction) async {
+        // Reduce stock for each product
+        for (final item in _quantities.entries.where((e) => e.value > 0)) {
+          final productRef = db.collection('products').doc(item.key);
+          final productDoc = await transaction.get(productRef);
+          final currentStock = (productDoc.data() as Map<String, dynamic>?)?['stock'] ?? 0;
+          transaction.update(productRef, {'stock': currentStock - item.value});
+        }
+
+        // Add order
+        await db.collection('orders').add({
+          'mrId': uid,
+          'mrName': mrName,
+          'doctorId': _selectedDoctorId,
+          'doctorName': _selectedDoctorName,
+          'items': orderItems,
+          'remarks': _remarksCtrl.text.trim(),
+          'status': 'pending',
+          'date': today,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
       });
+
+      // Clear the active check-in session after order is placed
+      _activeCheckInDoctorId = null;
+      _activeCheckInDoctorName = null;
+      _activeCheckInTime = null;
+
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -1181,6 +1349,47 @@ class _MrPlaceOrderScreenState extends State<MrPlaceOrderScreen> {
   Widget build(BuildContext context) {
     final totalItems = _quantities.values.fold(0, (a, b) => a + b);
 
+    // If no valid doctor preselected, show restricted UI
+    if (widget.preselectedDoctorId == null && _selectedDoctorId == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Place New Order')),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.location_off, size: 80, color: Colors.red),
+                const SizedBox(height: 20),
+                const Text(
+                  'Cannot Place Order',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Orders can only be placed after checking in with a doctor.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 14, color: Colors.grey),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Please visit a doctor\'s clinic, check in, then place your order.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 13, color: Colors.orange),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton.icon(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.arrow_back),
+                  label: const Text('Go Back'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Place New Order'),
@@ -1190,7 +1399,7 @@ class _MrPlaceOrderScreenState extends State<MrPlaceOrderScreen> {
               padding: const EdgeInsets.only(right: 16),
               child: Center(
                 child: Text(
-                  'Dr. ${_selectedDoctorName!.split(' ').last}',
+                  'Dr. ${_selectedDoctorName!.contains(' ') ? _selectedDoctorName!.split(' ').last : _selectedDoctorName!}',
                   style: const TextStyle(fontSize: 14),
                 ),
               ),
@@ -1199,13 +1408,35 @@ class _MrPlaceOrderScreenState extends State<MrPlaceOrderScreen> {
       ),
       body: Column(
         children: [
+          // Info banner - show check-in requirement
+          Container(
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.green.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.green.shade200),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.green, size: 18),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'You can order only for the doctor you checked in with today.',
+                    style: TextStyle(fontSize: 12, color: Colors.green),
+                  ),
+                ),
+              ],
+            ),
+          ),
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ── Doctor selection ──
+                  // ── Doctor selection (disabled if preselected) ──
                   const Text(
                     'Select Doctor',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
@@ -1225,8 +1456,7 @@ class _MrPlaceOrderScreenState extends State<MrPlaceOrderScreen> {
                           isExpanded: true,
                           decoration: const InputDecoration(
                             border: InputBorder.none,
-                            contentPadding:
-                            EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
                             prefixIcon: Icon(Icons.person),
                           ),
                           hint: const Text('Choose a doctor'),
@@ -1240,7 +1470,9 @@ class _MrPlaceOrderScreenState extends State<MrPlaceOrderScreen> {
                               ),
                             );
                           }).toList(),
-                          onChanged: (val) {
+                          // Set onChanged to null when disabled, otherwise provide the function
+                          onChanged: widget.preselectedDoctorId == null
+                              ? (val) {
                             if (val == null) return;
                             final doc = _doctors.firstWhere((d) => d.id == val);
                             final data = doc.data() as Map<String, dynamic>;
@@ -1248,7 +1480,8 @@ class _MrPlaceOrderScreenState extends State<MrPlaceOrderScreen> {
                               _selectedDoctorId = val;
                               _selectedDoctorName = data['name'];
                             });
-                          },
+                          }
+                              : null, // Disabled when preselected
                         ),
                       ),
                     ),
@@ -1469,6 +1702,8 @@ class MrOrderDetailScreen extends StatelessWidget {
           _detail('Date',   data['date']       ?? 'N/A'),
           if (data['remarks'] != null && data['remarks'].toString().isNotEmpty)
             _detail('Remarks', data['remarks']),
+          if (data['billNumber'] != null && data['billNumber'].toString().isNotEmpty)
+            _detail('Bill No', data['billNumber']),
 
           const SizedBox(height: 16),
           const Text('Items Ordered',
