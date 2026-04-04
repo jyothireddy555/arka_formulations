@@ -190,43 +190,58 @@ class AdminDashboardScreen extends StatelessWidget {
                                     final todayReports = reportSnap.hasData
                                         ? reportSnap.data!.docs.length
                                         : 0;
-                                    return GridView.count(
-                                      crossAxisCount: 2,
-                                      shrinkWrap: true,
-                                      physics:
-                                      const NeverScrollableScrollPhysics(),
-                                      crossAxisSpacing: 12,
-                                      mainAxisSpacing: 12,
-                                      childAspectRatio: 1.6,
-                                      children: [
-                                        _statCard('Total MRs', '$mrCount',
-                                            Icons.badge, Colors.blue),
-                                        _statCard(
-                                            'Total Doctors',
-                                            '$doctorCount',
-                                            Icons.people,
-                                            Colors.green),
-                                        _statCard(
-                                            'Pending Orders',
-                                            '$pendingOrders',
-                                            Icons.pending_actions,
-                                            Colors.orange),
-                                        _statCard(
-                                            'Leave Requests',
-                                            '$pendingLeaves',
-                                            Icons.event_busy,
-                                            Colors.red),
-                                        _statCard(
-                                            'Dispatched',
-                                            '$dispatched',
-                                            Icons.local_shipping,
-                                            Colors.teal),
-                                        _statCard(
-                                            'Reports Today',
-                                            '$todayReports',
-                                            Icons.assignment_turned_in,
-                                            Colors.purple),
-                                      ],
+                                    return StreamBuilder<QuerySnapshot>(
+                                      stream: _db
+                                          .collection('stockists')
+                                          .snapshots(),
+                                      builder: (context, stockistSnap) {
+                                        final stockistCount = stockistSnap.hasData
+                                            ? stockistSnap.data!.docs.length
+                                            : 0;
+                                        return GridView.count(
+                                          crossAxisCount: 2,
+                                          shrinkWrap: true,
+                                          physics:
+                                          const NeverScrollableScrollPhysics(),
+                                          crossAxisSpacing: 12,
+                                          mainAxisSpacing: 12,
+                                          childAspectRatio: 1.6,
+                                          children: [
+                                            _statCard('Total MRs', '$mrCount',
+                                                Icons.badge, Colors.blue),
+                                            _statCard(
+                                                'Total Doctors',
+                                                '$doctorCount',
+                                                Icons.people,
+                                                Colors.green),
+                                            _statCard(
+                                                'Pending Orders',
+                                                '$pendingOrders',
+                                                Icons.pending_actions,
+                                                Colors.orange),
+                                            _statCard(
+                                                'Leave Requests',
+                                                '$pendingLeaves',
+                                                Icons.event_busy,
+                                                Colors.red),
+                                            _statCard(
+                                                'Dispatched',
+                                                '$dispatched',
+                                                Icons.local_shipping,
+                                                Colors.teal),
+                                            _statCard(
+                                                'Reports Today',
+                                                '$todayReports',
+                                                Icons.assignment_turned_in,
+                                                Colors.purple),
+                                            _statCard(
+                                                'Stockists',
+                                                '$stockistCount',
+                                                Icons.store,
+                                                Colors.brown),
+                                          ],
+                                        );
+                                      },
                                     );
                                   },
                                 );
@@ -243,7 +258,6 @@ class AdminDashboardScreen extends StatelessWidget {
           ],
         ),
       ),
-
     );
   }
 
@@ -293,8 +307,12 @@ class AdminDoctorsScreen extends StatefulWidget {
 class _AdminDoctorsScreenState extends State<AdminDoctorsScreen> {
   String _searchQuery = '';
   String _filterDivision = 'All';
+  String _filterTier = 'All';
   final List<String> _divisions = [
     'All', 'Ortho', 'Gynec', 'General'
+  ];
+  final List<String> _tiers = [
+    'All', 'Core', 'Super Core', 'Premium'
   ];
 
   @override
@@ -322,7 +340,6 @@ class _AdminDoctorsScreenState extends State<AdminDoctorsScreen> {
       ),
       body: Column(
         children: [
-          // Search bar
           Padding(
             padding: const EdgeInsets.all(12),
             child: TextField(
@@ -341,8 +358,6 @@ class _AdminDoctorsScreenState extends State<AdminDoctorsScreen> {
               ),
             ),
           ),
-
-          // Division filter chips
           SizedBox(
             height: 40,
             child: ListView.builder(
@@ -367,9 +382,31 @@ class _AdminDoctorsScreenState extends State<AdminDoctorsScreen> {
               },
             ),
           ),
+          const SizedBox(height: 4),
+          SizedBox(
+            height: 40,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              itemCount: _tiers.length,
+              itemBuilder: (context, index) {
+                final tier = _tiers[index];
+                final isSelected = _filterTier == tier;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: FilterChip(
+                    label: Text(tier),
+                    selected: isSelected,
+                    onSelected: (_) =>
+                        setState(() => _filterTier = tier),
+                    selectedColor: Colors.purple.withOpacity(0.2),
+                    checkmarkColor: Colors.purple,
+                  ),
+                );
+              },
+            ),
+          ),
           const SizedBox(height: 8),
-
-          // Doctor list
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: _db
@@ -411,7 +448,6 @@ class _AdminDoctorsScreenState extends State<AdminDoctorsScreen> {
                   );
                 }
 
-                // Filter doctors
                 var docs = snapshot.data!.docs.where((doc) {
                   final data = doc.data() as Map<String, dynamic>;
                   final name =
@@ -421,6 +457,8 @@ class _AdminDoctorsScreenState extends State<AdminDoctorsScreen> {
                       .toLowerCase();
                   final division =
                   (data['division'] ?? '').toString();
+                  final tier =
+                  (data['tier'] ?? 'Normal').toString();
 
                   final matchesSearch = _searchQuery.isEmpty ||
                       name.contains(_searchQuery) ||
@@ -430,7 +468,10 @@ class _AdminDoctorsScreenState extends State<AdminDoctorsScreen> {
                       _filterDivision == 'All' ||
                           division == _filterDivision;
 
-                  return matchesSearch && matchesDivision;
+                  final matchesTier =
+                      _filterTier == 'All' || tier == _filterTier;
+
+                  return matchesSearch && matchesDivision && matchesTier;
                 }).toList();
 
                 if (docs.isEmpty) {
@@ -450,10 +491,9 @@ class _AdminDoctorsScreenState extends State<AdminDoctorsScreen> {
                     final data =
                     docs[index].data() as Map<String, dynamic>;
                     final docId = docs[index].id;
-                    return _DoctorCard(
+                    return _AdminDoctorCard(
                       data: data,
                       docId: docId,
-                      isAdmin: true,
                     );
                   },
                 );
@@ -467,17 +507,15 @@ class _AdminDoctorsScreenState extends State<AdminDoctorsScreen> {
 }
 
 // ─────────────────────────────────────────
-// DOCTOR CARD WIDGET (shared by admin & MR)
+// ADMIN DOCTOR CARD WIDGET
 // ─────────────────────────────────────────
-class _DoctorCard extends StatelessWidget {
+class _AdminDoctorCard extends StatelessWidget {
   final Map<String, dynamic> data;
   final String docId;
-  final bool isAdmin;
 
-  const _DoctorCard({
+  const _AdminDoctorCard({
     required this.data,
     required this.docId,
-    required this.isAdmin,
   });
 
   Color _divisionColor(String division) {
@@ -491,10 +529,25 @@ class _DoctorCard extends StatelessWidget {
     }
   }
 
+  Color _tierColor(String tier) {
+    switch (tier) {
+      case 'Premium':
+        return Colors.purple;
+      case 'Super Core':
+        return Colors.orange;
+      case 'Core':
+        return Colors.teal;
+      default:
+        return Colors.grey;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final division = data['division'] ?? 'General';
     final color = _divisionColor(division);
+    final tier = data['tier'] ?? 'Normal';
+    final tierColor = _tierColor(tier);
     final hasLocation = data['latitude'] != null &&
         data['longitude'] != null;
 
@@ -539,69 +592,70 @@ class _DoctorCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (isAdmin)
-                  PopupMenuButton(
-                    icon: const Icon(Icons.more_vert),
-                    itemBuilder: (_) => [
-                      const PopupMenuItem(
-                          value: 'edit', child: Text('Edit')),
-                      const PopupMenuItem(
-                          value: 'delete',
-                          child: Text('Delete',
-                              style: TextStyle(color: Colors.red))),
-                    ],
-                    onSelected: (value) async {
-                      if (value == 'edit') {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => AddDoctorScreen(
-                              existingData: data,
-                              docId: docId,
-                            ),
+                PopupMenuButton(
+                  icon: const Icon(Icons.more_vert),
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(
+                        value: 'edit', child: Text('Edit')),
+                    const PopupMenuItem(
+                        value: 'delete',
+                        child: Text('Delete',
+                            style: TextStyle(color: Colors.red))),
+                  ],
+                  onSelected: (value) async {
+                    if (value == 'edit') {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => AddDoctorScreen(
+                            existingData: data,
+                            docId: docId,
                           ),
-                        );
-                      } else if (value == 'delete') {
-                        final confirm = await showDialog<bool>(
-                          context: context,
-                          builder: (_) => AlertDialog(
-                            title: const Text('Delete Doctor'),
-                            content: Text(
-                                'Are you sure you want to delete ${data['name']}?'),
-                            actions: [
-                              TextButton(
-                                  onPressed: () =>
-                                      Navigator.pop(context, false),
-                                  child: const Text('Cancel')),
-                              TextButton(
-                                  onPressed: () =>
-                                      Navigator.pop(context, true),
-                                  child: const Text('Delete',
-                                      style: TextStyle(
-                                          color: Colors.red))),
-                            ],
-                          ),
-                        );
-                        if (confirm == true) {
-                          await _db
-                              .collection('doctors')
-                              .doc(docId)
-                              .delete();
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                  content: Text('Doctor deleted'),
-                                  backgroundColor: Colors.red),
-                            );
-                          }
+                        ),
+                      );
+                    } else if (value == 'delete') {
+                      final confirm = await showDialog<bool>(
+                        context: context,
+                        builder: (_) => AlertDialog(
+                          title: const Text('Delete Doctor'),
+                          content: Text(
+                              'Are you sure you want to delete ${data['name']}?'),
+                          actions: [
+                            TextButton(
+                                onPressed: () =>
+                                    Navigator.pop(context, false),
+                                child: const Text('Cancel')),
+                            TextButton(
+                                onPressed: () =>
+                                    Navigator.pop(context, true),
+                                child: const Text('Delete',
+                                    style: TextStyle(
+                                        color: Colors.red))),
+                          ],
+                        ),
+                      );
+                      if (confirm == true) {
+                        await _db
+                            .collection('doctors')
+                            .doc(docId)
+                            .delete();
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                                content: Text('Doctor deleted'),
+                                backgroundColor: Colors.red),
+                          );
                         }
                       }
-                    },
-                  ),
+                    }
+                  },
+                ),
               ],
             ),
             const SizedBox(height: 10),
-            Row(
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
               children: [
                 Container(
                   padding: const EdgeInsets.symmetric(
@@ -616,7 +670,21 @@ class _DoctorCard extends StatelessWidget {
                           fontSize: 11,
                           fontWeight: FontWeight.w600)),
                 ),
-                const SizedBox(width: 8),
+                if (tier != 'Normal')
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: tierColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: tierColor.withOpacity(0.5)),
+                    ),
+                    child: Text(tier,
+                        style: TextStyle(
+                            color: tierColor,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600)),
+                  ),
                 Container(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 8, vertical: 3),
@@ -652,14 +720,20 @@ class _DoctorCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                const Spacer(),
-                Text(
-                  '📍 ${data['area'] ?? 'N/A'}',
-                  style: TextStyle(
-                      fontSize: 11, color: Colors.grey.shade500),
-                ),
               ],
             ),
+            if (data['totalOrderValue'] != null && data['totalOrderValue'] > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  'Total Orders: ₹${data['totalOrderValue']}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.purple.shade700,
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -729,7 +803,6 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
     setState(() => _isFetchingLocation = true);
 
     try {
-      // Check permission
       LocationPermission permission =
       await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
@@ -752,7 +825,6 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
         return;
       }
 
-      // Get position
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
@@ -813,6 +885,8 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
         'division': _selectedDivision,
         'latitude': _latitude,
         'longitude': _longitude,
+        'tier': 'Normal',
+        'totalOrderValue': 0,
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
@@ -822,8 +896,7 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
             .doc(widget.docId)
             .update(data);
       } else {
-        // FIX: isActive field required by MR doctor list filter
-        data['isActive']  = true;
+        data['isActive'] = true;
         data['createdAt'] = FieldValue.serverTimestamp();
         data['createdBy'] = _auth.currentUser!.uid;
         await _db.collection('doctors').add(data);
@@ -868,7 +941,6 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Doctor Name
             _label('Doctor Name'),
             TextField(
               controller: _nameController,
@@ -878,8 +950,6 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
               ),
             ),
             const SizedBox(height: 14),
-
-            // Specialization
             _label('Specialization'),
             DropdownButtonFormField<String>(
               value: _selectedSpecialization,
@@ -894,8 +964,6 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
                   setState(() => _selectedSpecialization = val!),
             ),
             const SizedBox(height: 14),
-
-            // Hospital
             _label('Hospital / Clinic Name'),
             TextField(
               controller: _hospitalController,
@@ -905,8 +973,6 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
               ),
             ),
             const SizedBox(height: 14),
-
-            // Area
             _label('Area'),
             TextField(
               controller: _areaController,
@@ -916,8 +982,6 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
               ),
             ),
             const SizedBox(height: 14),
-
-            // Address
             _label('Full Address (Optional)'),
             TextField(
               controller: _addressController,
@@ -928,8 +992,6 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
               ),
             ),
             const SizedBox(height: 14),
-
-            // Division
             _label('Division'),
             DropdownButtonFormField<String>(
               value: _selectedDivision,
@@ -944,8 +1006,6 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
                   setState(() => _selectedDivision = val!),
             ),
             const SizedBox(height: 20),
-
-            // Location section
             _label('Doctor\'s Location'),
             const SizedBox(height: 6),
             Container(
@@ -1043,8 +1103,6 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
               ),
             ),
             const SizedBox(height: 20),
-
-            // Error
             if (_errorMessage.isNotEmpty)
               Container(
                 padding: const EdgeInsets.all(10),
@@ -1067,8 +1125,6 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
                   ],
                 ),
               ),
-
-            // Save button
             _isLoading
                 ? const Center(child: CircularProgressIndicator())
                 : ElevatedButton.icon(
@@ -1158,20 +1214,18 @@ class AdminMrManagementScreen extends StatelessWidget {
                 margin: const EdgeInsets.only(bottom: 10),
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12)),
-                child: ListTile(
+                child: ExpansionTile(
                   leading: CircleAvatar(
                     backgroundColor: isActive
                         ? Colors.blue.shade50
                         : Colors.grey.shade100,
                     child: Icon(Icons.person,
-                        color:
-                        isActive ? Colors.blue : Colors.grey),
+                        color: isActive ? Colors.blue : Colors.grey),
                   ),
                   title: Row(children: [
                     Expanded(
                       child: Text(mr['name'] ?? 'Unknown',
-                          style:
-                          const TextStyle(fontWeight: FontWeight.bold)),
+                          style: const TextStyle(fontWeight: FontWeight.bold)),
                     ),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -1193,7 +1247,6 @@ class AdminMrManagementScreen extends StatelessWidget {
                   ]),
                   subtitle: Text(
                       '${mr['email']}\n📍 ${mr['area'] ?? 'N/A'}'),
-                  isThreeLine: true,
                   trailing: PopupMenuButton(
                     itemBuilder: (_) => [
                       PopupMenuItem(
@@ -1227,12 +1280,434 @@ class AdminMrManagementScreen extends StatelessWidget {
                       }
                     },
                   ),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Divider(height: 20),
+                          // Quick stats row
+                          StreamBuilder<QuerySnapshot>(
+                            stream: _db
+                                .collection('allowances')
+                                .where('mrId', isEqualTo: docId)
+                                .snapshots(),
+                            builder: (context, allowanceSnap) {
+                              final allDocs = allowanceSnap.data?.docs ?? [];
+                              double total = 0;
+                              for (final d in allDocs) {
+                                total += (d.data() as Map)['amount'] as num? ?? 0;
+                              }
+                              return Row(children: [
+                                _mrStatChip('Orders', '${allDocs.length}', Colors.blue),
+                                const SizedBox(width: 8),
+                                _mrStatChip('Total Bonus', '₹${total.toStringAsFixed(0)}',
+                                    Colors.green),
+                              ]);
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          // View full details button
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => AdminMrDetailScreen(
+                                    mrId: docId,
+                                    mrData: mr,
+                                  ),
+                                ),
+                              ),
+                              icon: const Icon(Icons.open_in_new, size: 16),
+                              label: const Text('View Full Details & History'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               );
             },
           );
         },
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────
+// ADMIN MR DETAIL SCREEN  (full page)
+// ─────────────────────────────────────────
+class AdminMrDetailScreen extends StatelessWidget {
+  final String mrId;
+  final Map<String, dynamic> mrData;
+  const AdminMrDetailScreen(
+      {super.key, required this.mrId, required this.mrData});
+
+  Color _tierColor(String tier) {
+    switch (tier) {
+      case 'Premium':    return Colors.purple;
+      case 'Super Core': return Colors.orange;
+      case 'Core':       return Colors.teal;
+      default:           return Colors.grey;
+    }
+  }
+
+  IconData _tierIcon(String tier) {
+    switch (tier) {
+      case 'Premium':    return Icons.workspace_premium;
+      case 'Super Core': return Icons.star;
+      case 'Core':       return Icons.verified;
+      default:           return Icons.attach_money;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isActive = mrData['isActive'] ?? true;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(mrData['name'] ?? 'MR Details'),
+        actions: [
+          Container(
+            margin: const EdgeInsets.only(right: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: isActive ? Colors.green.shade100 : Colors.red.shade100,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              isActive ? 'Active' : 'Inactive',
+              style: TextStyle(
+                  color: isActive ? Colors.green.shade800 : Colors.red.shade800,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12),
+            ),
+          ),
+        ],
+      ),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: _db
+            .collection('allowances')
+            .where('mrId', isEqualTo: mrId)
+            .orderBy('createdAt', descending: true)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          final docs = snapshot.data?.docs ?? [];
+          double totalBonus = 0;
+          int coreCount = 0, superCoreCount = 0, premiumCount = 0;
+          for (final doc in docs) {
+            final d = doc.data() as Map<String, dynamic>;
+            totalBonus += (d['amount'] as num?)?.toDouble() ?? 0;
+            final t = d['tier'] ?? '';
+            if (t == 'Core')       coreCount++;
+            if (t == 'Super Core') superCoreCount++;
+            if (t == 'Premium')    premiumCount++;
+          }
+
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+
+              // ── MR info card ─────────────────────────────
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                      colors: [Color(0xFF1565C0), Color(0xFF1E88E5)]),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [
+                    const CircleAvatar(
+                      radius: 28,
+                      backgroundColor: Colors.white24,
+                      child: Icon(Icons.person, color: Colors.white, size: 32),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(mrData['name'] ?? '',
+                              style: const TextStyle(color: Colors.white,
+                                  fontSize: 18, fontWeight: FontWeight.bold)),
+                          Text(mrData['email'] ?? '',
+                              style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                        ])),
+                  ]),
+                  const SizedBox(height: 14),
+                  Wrap(spacing: 16, runSpacing: 8, children: [
+                    _infoChip(Icons.phone, mrData['phone'] ?? 'N/A'),
+                    _infoChip(Icons.location_on, mrData['area'] ?? 'N/A'),
+                    _infoChip(Icons.category, mrData['division'] ?? 'N/A'),
+                  ]),
+                ]),
+              ),
+              const SizedBox(height: 16),
+
+              // ── Commission summary row ────────────────────
+              Row(children: [
+                _summaryBox('Total Bonus', '₹${totalBonus.toStringAsFixed(0)}',
+                    Colors.green, Icons.account_balance_wallet),
+                const SizedBox(width: 10),
+                _summaryBox('Records', '${docs.length}',
+                    Colors.blue, Icons.receipt_long),
+                const SizedBox(width: 10),
+                _summaryBox('Fixed/mo',
+                    '₹${(mrData['fixedAllowance'] as num?)?.toInt() ?? 0}',
+                    Colors.purple, Icons.payments),
+              ]),
+              const SizedBox(height: 16),
+
+              // ── Tier breakdown ────────────────────────────
+              if (docs.isNotEmpty) ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Text('Tier Breakdown',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    const SizedBox(height: 10),
+                    Row(children: [
+                      _tierChip('Core',       coreCount,       Colors.teal),
+                      const SizedBox(width: 8),
+                      _tierChip('Super Core', superCoreCount,  Colors.orange),
+                      const SizedBox(width: 8),
+                      _tierChip('Premium',    premiumCount,    Colors.purple),
+                    ]),
+                  ]),
+                ),
+                const SizedBox(height: 20),
+              ],
+
+              // ── History header ────────────────────────────
+              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                const Text('Commission History',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                if (docs.isNotEmpty)
+                  Text('${docs.length} record(s)',
+                      style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+              ]),
+              const SizedBox(height: 12),
+
+              // ── History list ──────────────────────────────
+              if (docs.isEmpty)
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 40),
+                    child: Column(children: [
+                      Icon(Icons.account_balance_wallet_outlined,
+                          size: 60, color: Colors.grey.shade300),
+                      const SizedBox(height: 12),
+                      Text('No commission records yet',
+                          style: TextStyle(color: Colors.grey.shade500)),
+                    ]),
+                  ),
+                )
+              else
+                ...docs.map((doc) {
+                  final d        = doc.data() as Map<String, dynamic>;
+                  final tier     = (d['tier'] as String?) ?? 'Normal';
+                  final tColor   = _tierColor(tier);
+                  final amount   = (d['amount'] as num?)?.toInt() ?? 0;
+                  final orderVal = (d['orderValue'] as num?)?.toInt() ?? 0;
+                  final docName  = d['doctorName'] as String? ?? 'N/A';
+                  final date     = d['orderDate'] as String? ?? '';
+
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    elevation: 1.5,
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Row(children: [
+                        // Tier icon
+                        Container(
+                          width: 42, height: 42,
+                          decoration: BoxDecoration(
+                            color: tColor.withOpacity(0.12),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: tColor.withOpacity(0.35)),
+                          ),
+                          child: Icon(_tierIcon(tier), color: tColor, size: 20),
+                        ),
+                        const SizedBox(width: 12),
+
+                        // Info
+                        Expanded(
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // Date
+                                Text(date,
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13)),
+                                const SizedBox(height: 2),
+                                // Doctor
+                                Text(docName,
+                                    style: TextStyle(
+                                        color: Colors.grey.shade700,
+                                        fontSize: 12)),
+                                const SizedBox(height: 4),
+                                // Deal value + tier badge
+                                Row(children: [
+                                  Text('Deal: ₹$orderVal',
+                                      style: TextStyle(
+                                          color: Colors.grey.shade600,
+                                          fontSize: 11)),
+                                  const SizedBox(width: 8),
+                                  if (tier != 'Normal')
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: tColor.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(
+                                            color: tColor.withOpacity(0.4)),
+                                      ),
+                                      child: Text(tier,
+                                          style: TextStyle(
+                                              color: tColor,
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.bold)),
+                                    ),
+                                ]),
+                              ]),
+                        ),
+
+                        // Bonus
+                        Column(crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text('+₹$amount',
+                                  style: TextStyle(
+                                      color: tColor,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16)),
+                              Text('bonus',
+                                  style: TextStyle(
+                                      color: Colors.grey.shade500,
+                                      fontSize: 10)),
+                            ]),
+                      ]),
+                    ),
+                  );
+                }),
+              const SizedBox(height: 20),
+            ]),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _infoChip(IconData icon, String text) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(icon, size: 13, color: Colors.white70),
+      const SizedBox(width: 4),
+      Text(text, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+    ],
+  );
+
+  Widget _summaryBox(String label, String value, Color color, IconData icon) =>
+      Expanded(
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: color.withOpacity(0.25)),
+          ),
+          child: Column(children: [
+            Icon(icon, color: color, size: 20),
+            const SizedBox(height: 4),
+            Text(value,
+                style: TextStyle(
+                    color: color, fontSize: 15, fontWeight: FontWeight.bold)),
+            Text(label,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 10)),
+          ]),
+        ),
+      );
+
+  Widget _tierChip(String label, int count, Color color) => Expanded(
+    child: Container(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(children: [
+        Text('$count',
+            style: TextStyle(
+                color: color, fontWeight: FontWeight.bold, fontSize: 18)),
+        Text(label,
+            style:
+            TextStyle(color: Colors.grey.shade600, fontSize: 9)),
+      ]),
+    ),
+  );
+}
+
+// helper used inside AdminMrManagementScreen's ExpansionTile
+Widget _mrStatChip(String label, String value, Color color) => Container(
+  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+  decoration: BoxDecoration(
+    color: color.withOpacity(0.08),
+    borderRadius: BorderRadius.circular(20),
+    border: Border.all(color: color.withOpacity(0.3)),
+  ),
+  child: Row(mainAxisSize: MainAxisSize.min, children: [
+    Text(label,
+        style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+    const SizedBox(width: 6),
+    Text(value,
+        style: TextStyle(
+            color: color, fontWeight: FontWeight.bold, fontSize: 13)),
+  ]),
+);
+
+// ─────────────────────────────────────────
+// MR ALLOWANCE HISTORY SCREEN  (kept for backward compat)
+// ─────────────────────────────────────────
+class MrAllowanceHistoryScreen extends StatelessWidget {
+  final String mrId;
+  final String mrName;
+  const MrAllowanceHistoryScreen(
+      {super.key, required this.mrId, required this.mrName});
+
+  @override
+  Widget build(BuildContext context) {
+    // Redirect to the new full detail screen with a dummy mrData shell
+    return FutureBuilder<DocumentSnapshot>(
+      future: _db.collection('users').doc(mrId).get(),
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+              body: Center(child: CircularProgressIndicator()));
+        }
+        final data = snap.data?.data() as Map<String, dynamic>? ?? {'name': mrName};
+        return AdminMrDetailScreen(mrId: mrId, mrData: data);
+      },
     );
   }
 }
@@ -1288,7 +1763,6 @@ class _AddMrScreenState extends State<AddMrScreen> {
     try {
       final currentAdmin = _auth.currentUser!;
 
-      // Safely get or create the secondary Firebase app
       FirebaseApp secondaryApp;
       try {
         secondaryApp = Firebase.app('secondary');
@@ -1301,14 +1775,13 @@ class _AddMrScreenState extends State<AddMrScreen> {
 
       final secondaryAuth = FirebaseAuth.instanceFor(app: secondaryApp);
 
-      // Create MR in secondary app — admin session is never touched
       final userCredential = await secondaryAuth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
       final newUid = userCredential.user!.uid;
+      final uid = userCredential.user!.uid;
 
-      // Write MR data to Firestore
       await _db.collection('users').doc(newUid).set({
         'name': name,
         'email': email,
@@ -1317,11 +1790,25 @@ class _AddMrScreenState extends State<AddMrScreen> {
         'division': _selectedDivision,
         'role': 'mr',
         'isActive': true,
+        'fixedAllowance': 0,
         'createdAt': FieldValue.serverTimestamp(),
         'createdBy': currentAdmin.uid,
       });
 
-      // Sign out secondary only, then delete it cleanly
+      // 🔥 GET ALL PRODUCTS
+      final productsSnapshot =
+      await db.collection('products').get();
+
+// 🔥 PREPARE STOCK MAP
+      Map<String, int> stockData = {};
+
+      for (var doc in productsSnapshot.docs) {
+        stockData[doc.id] = 0; // default stock
+      }
+
+// 🔥 CREATE STOCK DOCUMENT
+      await db.collection('stockist_stock').doc(uid).set(stockData);
+
       await secondaryAuth.signOut();
       await secondaryApp.delete();
 
@@ -1480,7 +1967,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 6, vsync: this);
   }
 
   @override
@@ -1493,6 +1980,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
     switch (s) {
       case 'pending':    return Colors.orange;
       case 'approved':   return Colors.blue;
+      case 'rejected':   return Colors.red;
       case 'billed':     return Colors.purple;
       case 'dispatched': return Colors.teal;
       case 'delivered':  return Colors.green;
@@ -1511,9 +1999,11 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white60,
           indicatorColor: Colors.white,
+          isScrollable: true,
           tabs: const [
             Tab(text: 'Pending'),
             Tab(text: 'Approved'),
+            Tab(text: 'Rejected'),
             Tab(text: 'Billed'),
             Tab(text: 'Dispatched'),
             Tab(text: 'All'),
@@ -1525,6 +2015,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
         children: [
           _OrderTab(statusFilter: 'pending',    statusColor: _statusColor),
           _OrderTab(statusFilter: 'approved',   statusColor: _statusColor),
+          _OrderTab(statusFilter: 'rejected',   statusColor: _statusColor),
           _OrderTab(statusFilter: 'billed',     statusColor: _statusColor),
           _OrderTab(statusFilter: 'dispatched', statusColor: _statusColor),
           _OrderTab(statusFilter: null,         statusColor: _statusColor),
@@ -1534,17 +2025,13 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
   }
 }
 
-// ─────────────────────────────────────────
-// ORDER TAB  (reusable per-status list)
-// ─────────────────────────────────────────
 class _OrderTab extends StatelessWidget {
-  final String? statusFilter;   // null = All
+  final String? statusFilter;
   final Color Function(String) statusColor;
   const _OrderTab({required this.statusFilter, required this.statusColor});
 
   @override
   Widget build(BuildContext context) {
-    // FIX: no compound index — fetch all orders, filter client-side
     return StreamBuilder<QuerySnapshot>(
       stream: _db.collection('orders').snapshots(),
       builder: (context, snapshot) {
@@ -1561,7 +2048,6 @@ class _OrderTab extends StatelessWidget {
           );
         }
 
-        // filter + sort client-side → no composite index needed
         var docs = (snapshot.data?.docs ?? []).where((d) {
           final data = d.data() as Map<String, dynamic>;
           return statusFilter == null || data['status'] == statusFilter;
@@ -1614,10 +2100,21 @@ class _OrderTab extends StatelessWidget {
                   'Order for ${data['doctorName'] ?? 'Unknown Doctor'}',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
-                subtitle: Text(
-                  '${data['mrId'] != null ? 'MR: ${data['mrName'] ?? data['mrId']}' : ''}'
-                      '  •  $items item(s)  •  ${data['date'] ?? ''}',
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'MR: ${data['mrName'] ?? 'N/A'}  •  $items item(s)  •  ${data['date'] ?? ''}',
+                    ),
+                    if (data['stockistName'] != null && data['stockistName'].toString().isNotEmpty)
+                      Text('Stockist: ${data['stockistName']}',
+                          style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                    if (data['orderValue'] != null)
+                      Text('Value: ₹${data['orderValue']}',
+                          style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                  ],
                 ),
+                isThreeLine: true,
                 trailing: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.end,
@@ -1632,6 +2129,12 @@ class _OrderTab extends StatelessWidget {
                           style: TextStyle(color: color, fontSize: 10,
                               fontWeight: FontWeight.bold)),
                     ),
+                    if (data['tier'] != null && data['tier'] != 'Normal')
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(data['tier'],
+                            style: TextStyle(color: Colors.purple.shade700, fontSize: 9)),
+                      ),
                   ],
                 ),
                 onTap: () => showDialog(
@@ -1649,9 +2152,6 @@ class _OrderTab extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────
-// ORDER DETAIL DIALOG  (admin — approve / dispatch / cancel)
-// ─────────────────────────────────────────
 class _AdminOrderDetailDialog extends StatelessWidget {
   final String orderId;
   final Map<String, dynamic> data;
@@ -1678,8 +2178,46 @@ class _AdminOrderDetailDialog extends StatelessWidget {
           const SizedBox(height: 4),
           Text('Doctor: ${data['doctorName'] ?? 'N/A'}',
               style: const TextStyle(fontWeight: FontWeight.w600)),
+          Text('MR: ${data['mrName'] ?? 'N/A'}',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+          if (data['stockistName'] != null && data['stockistName'].toString().isNotEmpty)
+            Text('Stockist: ${data['stockistName']}',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
           Text('Date: ${data['date'] ?? 'N/A'}',
               style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+          if (data['orderValue'] != null)
+            Text('Order Value: ₹${data['orderValue']}',
+                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+          if (data['tier'] != null && data['tier'] != 'Normal')
+            Container(
+              margin: const EdgeInsets.only(top: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.purple.shade50,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text('Doctor Tier: ${data['tier']} • Commission: ₹${data['commission'] ?? 0}',
+                  style: TextStyle(color: Colors.purple.shade700, fontSize: 11)),
+            ),
+          if (status == 'rejected' && data['rejectionReason'] != null) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.red.shade200),
+              ),
+              child: Row(children: [
+                const Icon(Icons.block, color: Colors.red, size: 16),
+                const SizedBox(width: 6),
+                Expanded(child: Text(
+                  'Rejected: ${data['rejectionReason']}',
+                  style: TextStyle(color: Colors.red.shade700, fontSize: 12),
+                )),
+              ]),
+            ),
+          ],
           const SizedBox(height: 12),
           const Divider(),
           ...items.map((item) => ListTile(
@@ -1716,13 +2254,11 @@ class _AdminOrderDetailDialog extends StatelessWidget {
                 ]),
               ),
             ),
-          // Action buttons based on current status
           Wrap(spacing: 8, runSpacing: 8, children: [
             if (status == 'pending') ...[
               _actionBtn('Approve', Colors.blue, () async {
                 await _db.collection('orders').doc(orderId)
                     .update({'status': 'approved', 'approvedAt': FieldValue.serverTimestamp()});
-                // Notify MR
                 final mrId = data['mrId']?.toString() ?? '';
                 if (mrId.isNotEmpty) {
                   await _db.collection('notifications').add({
@@ -1740,7 +2276,6 @@ class _AdminOrderDetailDialog extends StatelessWidget {
               _actionBtn('Cancel', Colors.red, () async {
                 await _db.collection('orders').doc(orderId)
                     .update({'status': 'cancelled'});
-                // Notify MR
                 final mrId = data['mrId']?.toString() ?? '';
                 if (mrId.isNotEmpty) {
                   await _db.collection('notifications').add({
@@ -1814,11 +2349,8 @@ class _AdminOrderDetailDialog extends StatelessWidget {
               }),
             if (status == 'billed')
               _actionBtn('Mark Dispatched', Colors.teal, () async {
-                // 1. Update order status → dispatched
-                // 2. Deduct each item's quantity from products stock
                 try {
                   await _db.runTransaction((txn) async {
-                    // Read all product docs first (reads must come before writes in txn)
                     final productRefs = <String, DocumentReference>{};
                     final productSnaps = <String, DocumentSnapshot>{};
                     for (final item in items) {
@@ -1829,7 +2361,6 @@ class _AdminOrderDetailDialog extends StatelessWidget {
                         productSnaps[pid] = await txn.get(ref);
                       }
                     }
-                    // Now do all writes
                     txn.update(_db.collection('orders').doc(orderId),
                         {'status': 'dispatched', 'dispatchedAt': FieldValue.serverTimestamp()});
                     for (final item in items) {
@@ -1844,7 +2375,6 @@ class _AdminOrderDetailDialog extends StatelessWidget {
                       txn.update(productRefs[pid]!, {'stock': newStock});
                     }
                   });
-                  // Send in-app notification to MR
                   final mrId = data['mrId']?.toString() ?? '';
                   if (mrId.isNotEmpty) {
                     await _db.collection('notifications').add({
@@ -1895,10 +2425,8 @@ class _AdminOrderDetailDialog extends StatelessWidget {
       );
 }
 
-
 // ─────────────────────────────────────────
 // ADMIN MR REPORTS SCREEN
-// View all daily reports submitted by MRs
 // ─────────────────────────────────────────
 class AdminMrReportsScreen extends StatefulWidget {
   const AdminMrReportsScreen({super.key});
@@ -1974,10 +2502,7 @@ class _AdminMrReportsScreenState extends State<AdminMrReportsScreen> {
                   );
                 }
 
-                // Get MR names for filter
                 final allReports = snapshot.data!.docs;
-
-                // Get unique MR names for filter dropdown
                 final mrNames = <String>{'All'};
                 for (final doc in allReports) {
                   final data = doc.data() as Map<String, dynamic>;
@@ -1985,7 +2510,6 @@ class _AdminMrReportsScreenState extends State<AdminMrReportsScreen> {
                   mrNames.add(mrName);
                 }
 
-                // Apply filters
                 var reports = allReports.where((doc) {
                   final data = doc.data() as Map<String, dynamic>;
                   final mrName = (data['mrName'] ?? '').toString().toLowerCase();
@@ -2005,7 +2529,6 @@ class _AdminMrReportsScreenState extends State<AdminMrReportsScreen> {
 
                 return Column(
                   children: [
-                    // MR Filter Dropdown
                     if (mrNames.length > 1)
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -2076,7 +2599,6 @@ class _AdminMrReportsScreenState extends State<AdminMrReportsScreen> {
                                       children: [
                                         const Divider(),
                                         const SizedBox(height: 8),
-                                        // Doctors visited
                                         const Text('Doctors Visited:',
                                             style: TextStyle(fontWeight: FontWeight.bold)),
                                         const SizedBox(height: 4),
@@ -2096,7 +2618,6 @@ class _AdminMrReportsScreenState extends State<AdminMrReportsScreen> {
                                             child: Text('No doctors visited', style: TextStyle(color: Colors.grey)),
                                           ),
                                         const SizedBox(height: 12),
-                                        // Notes
                                         if ((data['notes'] ?? '').toString().isNotEmpty) ...[
                                           const Text('Work Summary:',
                                               style: TextStyle(fontWeight: FontWeight.bold)),
@@ -2111,7 +2632,6 @@ class _AdminMrReportsScreenState extends State<AdminMrReportsScreen> {
                                           ),
                                           const SizedBox(height: 12),
                                         ],
-                                        // Follow-up
                                         if ((data['followUp'] ?? '').toString().isNotEmpty) ...[
                                           const Text('Follow-up Notes:',
                                               style: TextStyle(fontWeight: FontWeight.bold)),
@@ -2160,12 +2680,157 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
   String _searchQuery = '';
   final List<String> _divisions = ['All', 'Ortho', 'Gynec', 'General'];
 
+  // Stockist filter
+  String _selectedStockistView = 'overall'; // 'overall' or stockist UID
+  String _selectedStockistLabel = 'Overall (Products)';
+  List<Map<String, dynamic>> _stockists = [];
+  Map<String, int> _stockistStockData = {};
+  bool _loadingStockists = true;
+  bool _loadingStockistStock = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStockists();
+  }
+
+  Future<void> _loadStockists() async {
+    try {
+      final snap = await _db
+          .collection('stockists')
+          .where('isActive', isEqualTo: true)
+          .orderBy('name')
+          .get();
+      if (mounted) {
+        setState(() {
+          _stockists = snap.docs.map((d) {
+            final data = d.data();
+            return {
+              'id': d.id,
+              'uid': data['uid'] ?? '',
+              'name': data['name'] ?? 'Unknown',
+              'city': data['city'] ?? '',
+            };
+          }).toList();
+          _loadingStockists = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _loadingStockists = false);
+    }
+  }
+
+  Future<void> _loadStockistStock(String stockistUid) async {
+    setState(() => _loadingStockistStock = true);
+    try {
+      final doc = await _db.collection('stockist_stock').doc(stockistUid).get();
+      if (mounted) {
+        final data = doc.exists ? (doc.data() ?? {}) : <String, dynamic>{};
+        setState(() {
+          _stockistStockData = data.map((k, v) => MapEntry(k, (v as num?)?.toInt() ?? 0));
+          _loadingStockistStock = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _loadingStockistStock = false);
+    }
+  }
+
+  void _showAddStockToAllDialog(BuildContext context) async {
+    final productsSnap = await _db.collection('products').get();
+    String? selectedProductId;
+    String? selectedProductName;
+    final qtyController = TextEditingController();
+
+    if (!context.mounted) return;
+    showDialog(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (context, setStateDialog) => AlertDialog(
+          title: const Text('Add Stock to All Stockists'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DropdownButtonFormField<String>(
+                hint: const Text('Select Product'),
+                value: selectedProductId,
+                items: productsSnap.docs.map((d) {
+                  final data = d.data();
+                  return DropdownMenuItem(
+                    value: d.id,
+                    child: Text(data['name'] ?? ''),
+                  );
+                }).toList(),
+                onChanged: (val) => setStateDialog(() {
+                  selectedProductId = val;
+                  selectedProductName = productsSnap.docs
+                      .firstWhere((d) => d.id == val)
+                      .data()['name'];
+                }),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: qtyController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Quantity to Add',
+                  prefixIcon: Icon(Icons.add_box),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () async {
+                if (selectedProductId == null) return;
+                final qty = int.tryParse(qtyController.text.trim()) ?? 0;
+                if (qty <= 0) return;
+                final stockistsSnap = await _db.collection('users')
+                    .where('role', isEqualTo: 'stockist').get();
+                for (final s in stockistsSnap.docs) {
+                  final uid = s.id;
+                  final stockDoc = await _db
+                      .collection('stockist_stock').doc(uid).get();
+                  final current = stockDoc.exists
+                      ? (stockDoc.data()?[selectedProductId!] as num?)?.toInt() ?? 0
+                      : 0;
+                  await _db.collection('stockist_stock').doc(uid).set(
+                    {selectedProductId!: current + qty},
+                    SetOptions(merge: true),
+                  );
+                }
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text('✅ Added $qty units of $selectedProductName to all stockists!'),
+                    backgroundColor: Colors.green,
+                  ));
+                }
+              },
+              child: const Text('Add to All'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final bool showingStockist = _selectedStockistView != 'overall';
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Stock Management'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.group_add),
+            tooltip: 'Add stock to all stockists',
+            onPressed: () => _showAddStockToAllDialog(context),
+          ),
           IconButton(
             icon: const Icon(Icons.add),
             onPressed: () => Navigator.push(
@@ -2185,8 +2850,57 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
       ),
       body: Column(
         children: [
+          // Stockist selector
+          Container(
+            margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+              color: showingStockist ? Colors.teal.shade50 : Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                  color: showingStockist ? Colors.teal.shade200 : Colors.blue.shade200),
+            ),
+            child: Row(children: [
+              Icon(showingStockist ? Icons.store : Icons.inventory_2,
+                  color: showingStockist ? Colors.teal : Colors.blue, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _selectedStockistView,
+                    isExpanded: true,
+                    items: [
+                      const DropdownMenuItem(
+                        value: 'overall',
+                        child: Text('Overall (All Products)',
+                            style: TextStyle(fontWeight: FontWeight.w600)),
+                      ),
+                      ..._stockists.map((s) => DropdownMenuItem(
+                        value: s['uid'] as String,
+                        child: Text('${s['name']}${s['city'] != '' ? ' (${s['city']})' : ''}'),
+                      )),
+                    ],
+                    onChanged: (val) {
+                      if (val == null) return;
+                      setState(() {
+                        _selectedStockistView = val;
+                        if (val == 'overall') {
+                          _selectedStockistLabel = 'Overall (Products)';
+                          _stockistStockData = {};
+                        } else {
+                          final s = _stockists.firstWhere((x) => x['uid'] == val);
+                          _selectedStockistLabel = s['name'] as String;
+                          _loadStockistStock(val);
+                        }
+                      });
+                    },
+                  ),
+                ),
+              ),
+            ]),
+          ),
           Padding(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
             child: TextField(
               onChanged: (val) => setState(() => _searchQuery = val.toLowerCase()),
               decoration: InputDecoration(
@@ -2201,6 +2915,7 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
               ),
             ),
           ),
+          const SizedBox(height: 4),
           SizedBox(
             height: 40,
             child: ListView.builder(
@@ -2224,22 +2939,43 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
             ),
           ),
           const SizedBox(height: 8),
+          // Summary bar
           StreamBuilder<QuerySnapshot>(
             stream: _db.collection('products').snapshots(),
             builder: (context, snapshot) {
               if (!snapshot.hasData) return const SizedBox();
               final docs = snapshot.data!.docs;
-              final total = docs.length;
-              final lowStock = docs.where((d) {
-                final data = d.data() as Map<String, dynamic>;
-                final stock = data['stock'] ?? 0;
-                final minStock = data['minStock'] ?? 10;
-                return stock <= minStock && stock > 0;
-              }).length;
-              final outOfStock = docs.where((d) {
-                final data = d.data() as Map<String, dynamic>;
-                return (data['stock'] ?? 0) == 0;
-              }).length;
+
+              if (showingStockist && _loadingStockistStock) {
+                return const Padding(
+                  padding: EdgeInsets.all(8),
+                  child: LinearProgressIndicator(),
+                );
+              }
+
+              int total = docs.length;
+              int lowStock = 0;
+              int outOfStock = 0;
+
+              if (showingStockist) {
+                for (final d in docs) {
+                  final qty = _stockistStockData[d.id] ?? 0;
+                  if (qty == 0) outOfStock++;
+                  else if (qty <= (((d.data() as Map<String, dynamic>)['minStock'] as num?)?.toInt() ?? 10)) lowStock++;
+                }
+              } else {
+                lowStock = docs.where((d) {
+                  final data = d.data() as Map<String, dynamic>;
+                  final stock = data['stock'] ?? 0;
+                  final minStock = data['minStock'] ?? 10;
+                  return stock <= minStock && stock > 0;
+                }).length;
+                outOfStock = docs.where((d) {
+                  final data = d.data() as Map<String, dynamic>;
+                  return (data['stock'] ?? 0) == 0;
+                }).length;
+              }
+
               return Container(
                 margin: const EdgeInsets.symmetric(horizontal: 12),
                 padding: const EdgeInsets.all(12),
@@ -2324,6 +3060,20 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
                     final data =
                     products[index].data() as Map<String, dynamic>;
                     final docId = products[index].id;
+
+                    if (showingStockist) {
+                      final stockistQty = _stockistStockData[docId] ?? 0;
+                      final overriddenData = Map<String, dynamic>.from(data);
+                      overriddenData['stock'] = stockistQty;
+                      return _ProductCard(
+                        data: overriddenData,
+                        docId: docId,
+                        isAdmin: true,
+                        stockistLabel: _selectedStockistLabel,
+                        stockistUid: _selectedStockistView, // ADD THIS
+                      );
+                    }
+
                     return _ProductCard(data: data, docId: docId, isAdmin: true);
                   },
                 );
@@ -2348,18 +3098,19 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
   }
 }
 
-// ─────────────────────────────────────────
-// PRODUCT CARD
-// ─────────────────────────────────────────
 class _ProductCard extends StatelessWidget {
   final Map<String, dynamic> data;
   final String docId;
   final bool isAdmin;
+  final String? stockistLabel;
+  final String? stockistUid; // ADD THIS
 
   const _ProductCard({
     required this.data,
     required this.docId,
     required this.isAdmin,
+    this.stockistLabel,
+    this.stockistUid,
   });
 
   Color _divisionColor(String division) {
@@ -2429,7 +3180,6 @@ class _ProductCard extends StatelessWidget {
                   PopupMenuButton(
                     icon: const Icon(Icons.more_vert),
                     itemBuilder: (_) => [
-                      const PopupMenuItem(value: 'edit', child: Text('Edit')),
                       const PopupMenuItem(
                           value: 'stock', child: Text('Update Stock')),
                       const PopupMenuItem(
@@ -2447,7 +3197,11 @@ class _ProductCard extends StatelessWidget {
                           ),
                         );
                       } else if (value == 'stock') {
-                        _showUpdateStockDialog(context, docId, stock);
+                        if (stockistUid != null) {
+                          _showUpdateStockistStockDialog(context, docId, stock, stockistUid!);
+                        } else {
+                          _showUpdateStockDialog(context, docId, stock);
+                        }
                       } else if (value == 'delete') {
                         final confirm = await showDialog<bool>(
                           context: context,
@@ -2523,6 +3277,12 @@ class _ProductCard extends StatelessWidget {
                     Text('₹${data['price'] ?? '0'} | ${data['packSize'] ?? 'N/A'}',
                         style: TextStyle(
                             color: Colors.grey.shade500, fontSize: 11)),
+                    if (stockistLabel != null)
+                      Text(stockistLabel!,
+                          style: TextStyle(
+                              color: Colors.teal.shade700,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600)),
                   ],
                 ),
               ],
@@ -2572,6 +3332,55 @@ class _ProductCard extends StatelessWidget {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                       content: Text('✅ Stock updated!'),
+                      backgroundColor: Colors.green),
+                );
+              }
+            },
+            child: const Text('Update'),
+          ),
+        ],
+      ),
+    );
+  }
+  void _showUpdateStockistStockDialog(
+      BuildContext context, String docId, int currentStock, String stockistUid) {
+    final controller = TextEditingController(text: '$currentStock');
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Update Stockist Stock'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Current stock: $currentStock units',
+                style: const TextStyle(color: Colors.grey)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'New Stock Quantity',
+                prefixIcon: Icon(Icons.inventory),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () async {
+              final newStock = int.tryParse(controller.text.trim()) ?? 0;
+              await _db.collection('stockist_stock').doc(stockistUid).set(
+                {docId: newStock},
+                SetOptions(merge: true),
+              );
+              if (context.mounted) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text('✅ Stockist stock updated!'),
                       backgroundColor: Colors.green),
                 );
               }
@@ -2956,6 +3765,10 @@ class AdminProfileScreen extends StatelessWidget {
               Navigator.push(context, MaterialPageRoute(
                   builder: (_) => const AdminDoctorsScreen()));
             }),
+            _menuItem(context, Icons.store, 'Stockist Management', Colors.brown, () {
+              Navigator.push(context, MaterialPageRoute(
+                  builder: (_) => const AdminStockistScreen()));
+            }),
             _menuItem(context, Icons.calendar_today, 'Attendance Records', Colors.orange, () {
               Navigator.push(context, MaterialPageRoute(
                   builder: (_) => const AdminAttendanceScreen()));
@@ -2969,10 +3782,13 @@ class AdminProfileScreen extends StatelessWidget {
                   Navigator.push(context, MaterialPageRoute(
                       builder: (_) => const AdminAllowanceScreen()));
                 }),
-            // In AdminProfileScreen, add this menu item: mr report button maybe
             _menuItem(context, Icons.assignment, 'MR Daily Reports', Colors.teal, () {
               Navigator.push(context, MaterialPageRoute(
                   builder: (_) => const AdminMrReportsScreen()));
+            }),
+            _menuItem(context, Icons.inventory_2, 'Stock Reports', Colors.deepOrange, () {
+              Navigator.push(context, MaterialPageRoute(
+                  builder: (_) => const AdminStockReportsScreen()));
             }),
             _menuItem(context, Icons.lock_outline, 'Change Password', Colors.blueGrey, () {
               Navigator.push(context, MaterialPageRoute(
@@ -3034,9 +3850,565 @@ class AdminProfileScreen extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────
+// ADMIN STOCKIST SCREEN
+// ─────────────────────────────────────────
+class AdminStockistScreen extends StatefulWidget {
+  const AdminStockistScreen({super.key});
+
+  @override
+  State<AdminStockistScreen> createState() => _AdminStockistScreenState();
+}
+
+class _AdminStockistScreenState extends State<AdminStockistScreen> {
+  String _searchQuery = '';
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Stockist Management'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.person_add),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const AddStockistScreen()),
+            ),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const AddStockistScreen()),
+        ),
+        icon: const Icon(Icons.add),
+        label: const Text('Add Stockist'),
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: TextField(
+              onChanged: (val) => setState(() => _searchQuery = val.toLowerCase()),
+              decoration: InputDecoration(
+                hintText: 'Search stockists...',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                  icon: const Icon(Icons.clear),
+                  onPressed: () => setState(() => _searchQuery = ''),
+                )
+                    : null,
+              ),
+            ),
+          ),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: _db
+                  .collection('stockists')
+                  .orderBy('createdAt', descending: true)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Text('Error: ${snapshot.error}',
+                        style: const TextStyle(color: Colors.red)),
+                  );
+                }
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.store_outlined,
+                            size: 80, color: Colors.grey.shade300),
+                        const SizedBox(height: 16),
+                        Text('No stockists added yet',
+                            style: TextStyle(
+                                color: Colors.grey.shade500, fontSize: 16)),
+                        const SizedBox(height: 8),
+                        Text('Tap + Add Stockist to get started',
+                            style: TextStyle(
+                                color: Colors.grey.shade400, fontSize: 13)),
+                      ],
+                    ),
+                  );
+                }
+
+                var docs = snapshot.data!.docs.where((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  final name = (data['name'] ?? '').toString().toLowerCase();
+                  final city = (data['city'] ?? '').toString().toLowerCase();
+                  return _searchQuery.isEmpty ||
+                      name.contains(_searchQuery) ||
+                      city.contains(_searchQuery);
+                }).toList();
+
+                if (docs.isEmpty) {
+                  return Center(
+                    child: Text('No stockists found',
+                        style: TextStyle(color: Colors.grey.shade500)),
+                  );
+                }
+
+                return ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  itemCount: docs.length,
+                  itemBuilder: (context, index) {
+                    final data = docs[index].data() as Map<String, dynamic>;
+                    final docId = docs[index].id;
+                    return _StockistCard(data: data, docId: docId);
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StockistCard extends StatelessWidget {
+  final Map<String, dynamic> data;
+  final String docId;
+
+  const _StockistCard({
+    required this.data,
+    required this.docId,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: Colors.brown.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(Icons.store, color: Colors.brown),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(data['name'] ?? 'Unknown',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: 15)),
+                      Text(data['city'] ?? '',
+                          style: TextStyle(
+                              color: Colors.grey.shade500, fontSize: 12)),
+                      Text(data['address'] ?? '',
+                          style: TextStyle(
+                              color: Colors.grey.shade400, fontSize: 11),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis),
+                    ],
+                  ),
+                ),
+                PopupMenuButton(
+                  icon: const Icon(Icons.more_vert),
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(
+                        value: 'edit', child: Text('Edit')),
+                    const PopupMenuItem(
+                        value: 'delete',
+                        child: Text('Delete',
+                            style: TextStyle(color: Colors.red))),
+                  ],
+                  onSelected: (value) async {
+                    if (value == 'edit') {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => AddStockistScreen(
+                            existingData: data,
+                            docId: docId,
+                          ),
+                        ),
+                      );
+                    } else if (value == 'delete') {
+                      final confirm = await showDialog<bool>(
+                        context: context,
+                        builder: (_) => AlertDialog(
+                          title: const Text('Delete Stockist'),
+                          content: Text('Delete ${data['name']}?'),
+                          actions: [
+                            TextButton(
+                                onPressed: () => Navigator.pop(context, false),
+                                child: const Text('Cancel')),
+                            TextButton(
+                                onPressed: () => Navigator.pop(context, true),
+                                child: const Text('Delete',
+                                    style: TextStyle(color: Colors.red))),
+                          ],
+                        ),
+                      );
+                      if (confirm == true) {
+                        await _db
+                            .collection('stockists')
+                            .doc(docId)
+                            .delete();
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                                content: Text('Stockist deleted'),
+                                backgroundColor: Colors.red),
+                          );
+                        }
+                      }
+                    }
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(Icons.phone, size: 14, color: Colors.grey.shade600),
+                const SizedBox(width: 4),
+                Text(data['phone'] ?? 'No phone',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                const SizedBox(width: 16),
+                Icon(Icons.email, size: 14, color: Colors.grey.shade600),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(data['email'] ?? 'No email',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                      overflow: TextOverflow.ellipsis),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────
+// ADD / EDIT STOCKIST SCREEN (FIXED)
+// ─────────────────────────────────────────
+class AddStockistScreen extends StatefulWidget {
+  final Map<String, dynamic>? existingData;
+  final String? docId;
+
+  const AddStockistScreen({super.key, this.existingData, this.docId});
+
+  @override
+  State<AddStockistScreen> createState() => _AddStockistScreenState();
+}
+
+class _AddStockistScreenState extends State<AddStockistScreen> {
+  final _nameController     = TextEditingController();
+  final _phoneController    = TextEditingController();
+  final _emailController    = TextEditingController();
+  final _addressController  = TextEditingController();
+  final _cityController     = TextEditingController();
+  final _pinCodeController  = TextEditingController();
+  final _passwordController = TextEditingController();
+
+  bool _isLoading       = false;
+  bool _obscurePassword = true;
+  String _errorMessage  = '';
+  bool get _isEditing   => widget.existingData != null;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_isEditing) {
+      final d = widget.existingData!;
+      _nameController.text    = d['name']    ?? '';
+      _phoneController.text   = d['phone']   ?? '';
+      _emailController.text   = d['email']   ?? '';
+      _addressController.text = d['address'] ?? '';
+      _cityController.text    = d['city']    ?? '';
+      _pinCodeController.text = d['pinCode'] ?? '';
+    }
+  }
+
+  Future<void> _saveStockist() async {
+    final name  = _nameController.text.trim();
+    final phone = _phoneController.text.trim();
+    final email = _emailController.text.trim();
+    final city  = _cityController.text.trim();
+
+    if (name.isEmpty || phone.isEmpty || city.isEmpty) {
+      setState(() => _errorMessage = 'Please fill name, phone and city.');
+      return;
+    }
+
+    if (!_isEditing) {
+      if (email.isEmpty) {
+        setState(() => _errorMessage = 'Email is required to create login.');
+        return;
+      }
+      if (_passwordController.text.trim().length < 6) {
+        setState(() => _errorMessage = 'Password must be at least 6 characters.');
+        return;
+      }
+    }
+
+    setState(() { _isLoading = true; _errorMessage = ''; });
+
+    try {
+      if (_isEditing) {
+        // Just update the Firestore doc — no auth changes
+        await _db.collection('stockists').doc(widget.docId).update({
+          'name':      name,
+          'phone':     phone,
+          'email':     email,
+          'address':   _addressController.text.trim(),
+          'city':      city,
+          'pinCode':   _pinCodeController.text.trim(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        // Also update the users collection if uid stored
+        final uid = widget.existingData!['uid']?.toString() ?? '';
+        if (uid.isNotEmpty) {
+          await _db.collection('users').doc(uid).update({
+            'name':  name,
+            'phone': phone,
+            'city':  city,
+          });
+        }
+      } else {
+        // Create Firebase Auth account using secondary app
+        final currentAdmin = _auth.currentUser!;
+        FirebaseApp secondaryApp;
+        try {
+          secondaryApp = Firebase.app('secondary');
+        } catch (_) {
+          secondaryApp = await Firebase.initializeApp(
+            name: 'secondary',
+            options: DefaultFirebaseOptions.currentPlatform,
+          );
+        }
+        final secondaryAuth = FirebaseAuth.instanceFor(app: secondaryApp);
+        final cred = await secondaryAuth.createUserWithEmailAndPassword(
+          email: email,
+          password: _passwordController.text.trim(),
+        );
+        final newUid = cred.user!.uid;
+
+        // Save to users collection (for role-based routing)
+        await _db.collection('users').doc(newUid).set({
+          'name':      name,
+          'email':     email,
+          'phone':     phone,
+          'city':      city,
+          'role':      'stockist',
+          'isActive':  true,
+          'createdAt': FieldValue.serverTimestamp(),
+          'createdBy': currentAdmin.uid,
+        });
+
+        // Save to stockists collection with uid linked
+        await _db.collection('stockists').add({
+          'uid':       newUid,
+          'name':      name,
+          'phone':     phone,
+          'email':     email,
+          'address':   _addressController.text.trim(),
+          'city':      city,
+          'pinCode':   _pinCodeController.text.trim(),
+          'isActive':  true,
+          'createdAt': FieldValue.serverTimestamp(),
+          'createdBy': currentAdmin.uid,
+        });
+
+        // 🔥 IMPORTANT: Create stock document for this stockist
+        // Get all products and initialize with zero stock
+        final productsSnapshot = await _db.collection('products').get();
+        Map<String, int> stockData = {};
+        for (var doc in productsSnapshot.docs) {
+          stockData[doc.id] = 0; // default stock for each product
+        }
+        // Create the stock document in stockist_stock collection
+        await _db.collection('stockist_stock').doc(newUid).set(stockData);
+
+        await secondaryAuth.signOut();
+        await secondaryApp.delete();
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(_isEditing ? '✅ Stockist updated!' : '✅ Stockist account created!'),
+          backgroundColor: Colors.green,
+        ));
+        Navigator.pop(context);
+      }
+    } on FirebaseAuthException catch (e) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = e.code == 'email-already-in-use'
+            ? 'This email is already registered.'
+            : 'Failed: ${e.message}';
+      });
+    } catch (e) {
+      print('Error creating stockist: $e');
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Failed to save. Please try again.';
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _phoneController.dispose();
+    _emailController.dispose();
+    _addressController.dispose();
+    _cityController.dispose();
+    _pinCodeController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(_isEditing ? 'Edit Stockist' : 'Add Stockist')),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _field('Stockist Name *', _nameController, Icons.store,
+                'e.g. Sharma Medical Store'),
+            _field('Phone Number *', _phoneController, Icons.phone,
+                'e.g. 9876543210', type: TextInputType.phone),
+            _field('Email ${_isEditing ? "" : "*"}', _emailController,
+                Icons.email, 'e.g. stockist@example.com',
+                type: TextInputType.emailAddress,
+                readOnly: _isEditing),
+            _field('City *', _cityController, Icons.location_city, 'e.g. Nellore'),
+            _field('Address', _addressController, Icons.location_on,
+                'Full address', maxLines: 2),
+            _field('Pin Code', _pinCodeController, Icons.pin, 'e.g. 524001',
+                type: TextInputType.number),
+            if (!_isEditing) ...[
+              const SizedBox(height: 14),
+              const Text('Password *',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 6),
+              TextField(
+                controller: _passwordController,
+                obscureText: _obscurePassword,
+                decoration: InputDecoration(
+                  hintText: 'Set login password',
+                  prefixIcon: const Icon(Icons.lock_outlined),
+                  suffixIcon: IconButton(
+                    icon: Icon(_obscurePassword
+                        ? Icons.visibility_off
+                        : Icons.visibility),
+                    onPressed: () =>
+                        setState(() => _obscurePassword = !_obscurePassword),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Row(children: [
+                  Icon(Icons.info_outline, color: Colors.blue, size: 16),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'This will create a login account for the stockist and initialize their stock.',
+                      style: TextStyle(fontSize: 12, color: Colors.blue),
+                    ),
+                  ),
+                ]),
+              ),
+            ],
+            const SizedBox(height: 20),
+            if (_errorMessage.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.all(10),
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.shade200),
+                ),
+                child: Text(_errorMessage,
+                    style: const TextStyle(color: Colors.red, fontSize: 13)),
+              ),
+            _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : ElevatedButton.icon(
+              onPressed: _saveStockist,
+              icon: Icon(_isEditing ? Icons.save : Icons.add_business),
+              label: Text(
+                _isEditing ? 'Update Stockist' : 'Create Stockist Account',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+            const SizedBox(height: 30),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _field(
+      String label,
+      TextEditingController controller,
+      IconData icon,
+      String hint, {
+        TextInputType type = TextInputType.text,
+        int maxLines = 1,
+        bool readOnly = false,
+      }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 6),
+        TextField(
+          controller: controller,
+          keyboardType: type,
+          maxLines: maxLines,
+          readOnly: readOnly,
+          style: TextStyle(color: readOnly ? Colors.grey : Colors.black),
+          decoration: InputDecoration(
+            hintText: hint,
+            prefixIcon: Icon(icon),
+            filled: readOnly,
+            fillColor: readOnly ? Colors.grey.shade100 : null,
+          ),
+        ),
+        const SizedBox(height: 14),
+      ],
+    );
+  }
+}
+
+
+// ─────────────────────────────────────────
 // ADMIN ATTENDANCE SCREEN
-// Shows all MRs with their monthly attendance.
-// No compound index: fetches by date range only, filters mrId client-side.
 // ─────────────────────────────────────────
 class AdminAttendanceScreen extends StatefulWidget {
   const AdminAttendanceScreen({super.key});
@@ -3060,7 +4432,6 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Attendance Records')),
       body: Column(children: [
-        // Month selector
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
           child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
@@ -3082,7 +4453,6 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
             ),
           ]),
         ),
-        // MR list with attendance summary
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
             stream: _db.collection('users').where('role', isEqualTo: 'mr').snapshots(),
@@ -3095,14 +4465,12 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
               }
               final mrs = mrSnap.data!.docs;
               return StreamBuilder<QuerySnapshot>(
-                // single-field range on date — no compound index needed
                 stream: _db
                     .collection('attendance')
                     .where('date', isGreaterThanOrEqualTo: start)
                     .where('date', isLessThanOrEqualTo: end)
                     .snapshots(),
                 builder: (context, attSnap) {
-                  // Build a map: mrId → {date → status}
                   final attMap = <String, Map<String, String>>{};
                   for (final d in attSnap.data?.docs ?? []) {
                     final data  = d.data() as Map<String, dynamic>;
@@ -3140,7 +4508,6 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
                             _attChip('L: $leave',   Colors.orange),
                           ]),
                           children: [
-                            // Calendar grid
                             Padding(
                               padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                               child: GridView.builder(
@@ -3242,7 +4609,6 @@ class _LeaveList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
-      // No compound index: fetch all, filter + sort client-side
       stream: _db.collection('leave_requests').snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -3343,7 +4709,6 @@ class _LeaveList extends StatelessWidget {
                           onPressed: () async {
                             await _db.collection('leave_requests')
                                 .doc(doc.id).update({'status': 'approved'});
-                            // Mark attendance as 'leave' for each day
                             final from = DateTime.parse(data['fromDate']);
                             final to   = DateTime.parse(data['toDate']);
                             final mrId = data['mrId'] ?? '';
@@ -3600,4 +4965,158 @@ class _AdminChangePasswordScreenState
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
+}
+// ─────────────────────────────────────────
+// ADMIN STOCK REPORTS SCREEN
+// ─────────────────────────────────────────
+class AdminStockReportsScreen extends StatelessWidget {
+  const AdminStockReportsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Stock Reports')),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: _db
+            .collection('stock_reports')
+            .orderBy('createdAt', descending: true)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return Center(
+              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Icon(Icons.inventory_2_outlined, size: 80, color: Colors.grey.shade300),
+                const SizedBox(height: 16),
+                Text('No stock reports yet',
+                    style: TextStyle(color: Colors.grey.shade500, fontSize: 16)),
+              ]),
+            );
+          }
+
+          final docs = snapshot.data!.docs;
+
+          return ListView.builder(
+            padding: const EdgeInsets.all(12),
+            itemCount: docs.length,
+            itemBuilder: (context, i) {
+              final data    = docs[i].data() as Map<String, dynamic>;
+              final isRead  = data['isRead'] as bool? ?? false;
+              final items   = (data['items'] as List?) ?? [];
+              final lowCount = items.where((e) => e['status'] == 'low').length;
+              final outCount = items.where((e) => e['status'] == 'out').length;
+              final role    = data['reporterRole'] ?? 'mr';
+              final roleColor = role == 'stockist' ? Colors.brown : Colors.blue;
+              final rolLabel  = role == 'stockist' ? 'Stockist' : 'MR';
+
+              return Card(
+                margin: const EdgeInsets.only(bottom: 10),
+                color: isRead ? Colors.white : Colors.orange.shade50,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                child: ExpansionTile(
+                  leading: CircleAvatar(
+                    backgroundColor: Colors.deepOrange.withOpacity(0.15),
+                    child: const Icon(Icons.warning_amber, color: Colors.deepOrange),
+                  ),
+                  title: Row(children: [
+                    Expanded(
+                      child: Text(data['reporterName'] ?? data['mrName'] ?? 'Unknown',
+                          style: const TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: roleColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(rolLabel,
+                          style: TextStyle(color: roleColor, fontSize: 10, fontWeight: FontWeight.bold)),
+                    ),
+                  ]),
+                  subtitle: Text(
+                    '${data['stockistName'] != null ? "Stockist: ${data['stockistName']}  •  " : ""}'
+                        'Date: ${data['date'] ?? 'N/A'}  •  '
+                        '${lowCount > 0 ? "$lowCount Low  " : ""}'
+                        '${outCount > 0 ? "$outCount Out" : ""}',
+                  ),
+                  trailing: !isRead
+                      ? Container(
+                      width: 10, height: 10,
+                      decoration: const BoxDecoration(
+                          color: Colors.orange, shape: BoxShape.circle))
+                      : null,
+                  onExpansionChanged: (expanded) async {
+                    if (expanded && !isRead) {
+                      await docs[i].reference.update({'isRead': true});
+                    }
+                  },
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        const Divider(),
+                        ...items.map((item) {
+                          final isOut = item['status'] == 'out';
+                          return ListTile(
+                            dense: true,
+                            leading: Icon(
+                              isOut ? Icons.remove_circle : Icons.warning_amber,
+                              color: isOut ? Colors.red : Colors.orange,
+                              size: 20,
+                            ),
+                            title: FutureBuilder<DocumentSnapshot>(
+                              future: _db.collection('products')
+                                  .doc(item['productId']).get(),
+                              builder: (context, snap) {
+                                final name = snap.hasData && snap.data!.exists
+                                    ? (snap.data!.data() as Map<String, dynamic>)['name'] ?? item['productId']
+                                    : item['productId'] ?? '';
+                                return Text(name,
+                                    style: const TextStyle(fontSize: 13));
+                              },
+                            ),
+                            trailing: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: isOut
+                                    ? Colors.red.withOpacity(0.1)
+                                    : Colors.orange.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                isOut ? 'OUT OF STOCK' : 'LOW STOCK',
+                                style: TextStyle(
+                                    color: isOut ? Colors.red : Colors.orange,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          );
+                        }),
+                        if ((data['notes'] ?? '').toString().isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade50,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text('Note: ${data['notes']}',
+                                style: const TextStyle(fontSize: 13)),
+                          ),
+                        ],
+                      ]),
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
 }

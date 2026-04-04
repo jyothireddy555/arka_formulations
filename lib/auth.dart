@@ -3,6 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'mr_screens.dart';
 import 'admin_screens.dart';
+import 'stockist_screens.dart';
+import 'notification_service.dart';
 
 final FirebaseAuth auth = FirebaseAuth.instance;
 final FirebaseFirestore db = FirebaseFirestore.instance;
@@ -93,6 +95,8 @@ class RoleRedirector extends StatelessWidget {
 
           if (role == 'admin') {
             return const AdminMainScreen();
+          } else if (role == 'stockist') {
+            return const StockistMainScreen();
           } else {
             return const MrMainScreen();
           }
@@ -253,6 +257,7 @@ class _LoginScreenState extends State<LoginScreen> {
         email: email,
         password: password,
       );
+      await NotificationService.instance.onUserLogin(); // ← ADD THIS
       // AuthWrapper's StreamBuilder will automatically
       // detect the login and redirect to correct screen
     } on FirebaseAuthException catch (e) {

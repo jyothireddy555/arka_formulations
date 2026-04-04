@@ -2,10 +2,19 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <application
         android:label="arka_formulations"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <!-- FCM default channel for high-priority heads-up notifications -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="arka_high_importance"/>
+
+        <receiver android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.FlutterLocalNotificationsReceiver"/>
         <activity
             android:name=".MainActivity"
             android:exported="true"
