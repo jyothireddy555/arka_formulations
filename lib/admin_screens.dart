@@ -204,7 +204,7 @@ class AdminDashboardScreen extends StatelessWidget {
                                           physics:
                                           const NeverScrollableScrollPhysics(),
                                           crossAxisSpacing: 12,
-                                          mainAxisSpacing: 12,
+                                          mainAxisSfitpacing: 12,
                                           childAspectRatio: 1.6,
                                           children: [
                                             _statCard('Total MRs', '$mrCount',

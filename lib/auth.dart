@@ -65,8 +65,28 @@ class _AuthWrapperState extends State<AuthWrapper> {
 // ─────────────────────────────────────────
 // ROLE REDIRECTOR
 // ─────────────────────────────────────────
-class RoleRedirector extends StatelessWidget {
+class RoleRedirector extends StatefulWidget {
   const RoleRedirector({super.key});
+
+  @override
+  State<RoleRedirector> createState() => _RoleRedirectorState();
+}
+
+class _RoleRedirectorState extends State<RoleRedirector> {
+  // FIX: Track whether onUserLogin() has already been called this session.
+  // Without this, auto-login (app restart) never calls onUserLogin(),
+  // so the FCM token is never saved and Firestore listeners never start —
+  // meaning ALL notifications silently fail for auto-logged-in users.
+  bool _notificationInitDone = false;
+
+  void _ensureNotificationsInitialised() {
+    if (_notificationInitDone) return;
+    _notificationInitDone = true;
+    // Run after build so context is ready
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      NotificationService.instance.onUserLogin();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -92,6 +112,10 @@ class RoleRedirector extends StatelessWidget {
             });
             return const _DeactivatedScreen();
           }
+
+          // Ensure FCM token is saved & listeners started — works for both
+          // fresh login and auto-login on app restart.
+          _ensureNotificationsInitialised();
 
           if (role == 'admin') {
             return const AdminMainScreen();
