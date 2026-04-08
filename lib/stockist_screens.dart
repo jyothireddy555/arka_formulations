@@ -3,6 +3,20 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'auth.dart';
 import 'notification_service.dart';
+
+// ─────────────────────────────────────────
+// SHARED SAFE STOCK LOADER HELPER
+// Always use this to parse stockist_stock docs —
+// skips nested maps (e.g. lowStockReminders) safely
+// ─────────────────────────────────────────
+Map<String, int> _parseStockDoc(Map<String, dynamic> raw) {
+  return Map.fromEntries(
+    raw.entries
+        .where((e) => e.value is num)
+        .map((e) => MapEntry(e.key, (e.value as num).toInt())),
+  );
+}
+
 // ─────────────────────────────────────────
 // STOCKIST MAIN SCREEN
 // ─────────────────────────────────────────
@@ -26,7 +40,6 @@ class _StockistMainScreenState extends State<StockistMainScreen> {
   @override
   void initState() {
     super.initState();
-    // Listen for notification taps that want to switch tabs
     NotificationService.tabIndexNotifier.addListener(_onNotificationTab);
   }
 
@@ -40,7 +53,7 @@ class _StockistMainScreenState extends State<StockistMainScreen> {
     final idx = NotificationService.tabIndexNotifier.value;
     if (idx != null && mounted) {
       setState(() => _currentIndex = idx);
-      NotificationService.tabIndexNotifier.value = null; // reset
+      NotificationService.tabIndexNotifier.value = null;
     }
   }
 
@@ -79,6 +92,8 @@ class StockistDashboardScreen extends StatefulWidget {
 class _StockistDashboardScreenState extends State<StockistDashboardScreen> {
   String _stockistName = 'Stockist';
   String _stockistId   = '';
+  Map<String, int> _myStock = {};
+  bool _stockLoaded = false;
 
   @override
   void initState() {
@@ -89,17 +104,20 @@ class _StockistDashboardScreenState extends State<StockistDashboardScreen> {
   Future<void> _loadProfile() async {
     final uid = auth.currentUser?.uid;
     if (uid == null) return;
+
     final doc = await db.collection('users').doc(uid).get();
+    if (mounted) setState(() => _stockistName = doc.data()?['name'] ?? 'Stockist');
+
+    final stockDoc = await db.collection('stockist_stock').doc(uid).get();
     if (mounted) {
-      setState(() => _stockistName = doc.data()?['name'] ?? 'Stockist');
-    }
-    final snap = await db
-        .collection('stockists')
-        .where('uid', isEqualTo: uid)
-        .limit(1)
-        .get();
-    if (snap.docs.isNotEmpty && mounted) {
-      setState(() => _stockistId = snap.docs.first.id);
+      setState(() {
+        _stockistId = uid;
+        // ✅ SAFE: uses _parseStockDoc to skip nested maps
+        _myStock = stockDoc.exists
+            ? _parseStockDoc(stockDoc.data() as Map<String, dynamic>)
+            : {};
+        _stockLoaded = true;
+      });
     }
   }
 
@@ -153,6 +171,7 @@ class _StockistDashboardScreenState extends State<StockistDashboardScreen> {
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            // ── Welcome banner ─────────────────────────────
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(18),
@@ -179,59 +198,88 @@ class _StockistDashboardScreenState extends State<StockistDashboardScreen> {
             const Text('Overview',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
+
+            // ── Row 1: Pending Orders + Total Products ──────
             Row(children: [
-              _statStream(
-                label: 'Pending Orders',
-                icon: Icons.pending_actions,
-                color: Colors.orange,
-                stream: _stockistId.isNotEmpty
-                    ? db.collection('orders')
-                    .where('stockistId', isEqualTo: _stockistId)
-                    .where('status', isEqualTo: 'pending')
-                    .snapshots()
-                    : db.collection('orders')
-                    .where('status', isEqualTo: 'pending')
-                    .snapshots(),
+              Expanded(
+                child: _stockistId.isEmpty
+                    ? _statPlaceholder('Pending Orders', Icons.pending_actions, Colors.orange)
+                    : StreamBuilder<QuerySnapshot>(
+                  stream: db.collection('orders')
+                      .where('stockistId', isEqualTo: _stockistId)
+                      .where('status', isEqualTo: 'pending')
+                      .snapshots(),
+                  builder: (context, snap) => _statBox(
+                    label: 'Pending Orders',
+                    icon: Icons.pending_actions,
+                    color: Colors.orange,
+                    count: snap.hasData ? snap.data!.docs.length : 0,
+                  ),
+                ),
               ),
               const SizedBox(width: 12),
-              _statStream(
-                label: 'Total Products',
-                icon: Icons.inventory_2,
-                color: Colors.blue,
-                stream: db.collection('products').snapshots(),
+              Expanded(
+                child: StreamBuilder<QuerySnapshot>(
+                  stream: db.collection('products').snapshots(),
+                  builder: (context, snap) => _statBox(
+                    label: 'Total Products',
+                    icon: Icons.inventory_2,
+                    color: Colors.blue,
+                    count: snap.hasData ? snap.data!.docs.length : 0,
+                  ),
+                ),
               ),
             ]),
             const SizedBox(height: 12),
+
+            // ── Row 2: Low Stock (MY stock) + Dispatched ───
             Row(children: [
-              _statStream(
-                label: 'Low Stock',
-                icon: Icons.warning_amber,
-                color: Colors.red,
-                stream: db.collection('products').snapshots(),
-                countFn: (docs) => docs
-                    .where((d) {
-                  final data = d.data() as Map<String, dynamic>;
-                  final stock = (data['stock'] as num?)?.toInt() ?? 0;
-                  final min   = (data['minStock'] as num?)?.toInt() ?? 10;
-                  return stock <= min;
-                })
-                    .length,
+              Expanded(
+                child: !_stockLoaded
+                    ? _statPlaceholder('Low Stock', Icons.warning_amber, Colors.red)
+                    : StreamBuilder<QuerySnapshot>(
+                  stream: db.collection('products').snapshots(),
+                  builder: (context, snap) {
+                    if (!snap.hasData) {
+                      return _statBox(
+                          label: 'Low Stock',
+                          icon: Icons.warning_amber,
+                          color: Colors.red,
+                          count: 0);
+                    }
+                    final lowCount = snap.data!.docs.where((doc) {
+                      final data = doc.data() as Map<String, dynamic>;
+                      final myQty = _myStock[doc.id] ?? 0;
+                      final minStock = (data['minStock'] as num?)?.toInt() ?? 10;
+                      return myQty <= minStock;
+                    }).length;
+                    return _statBox(
+                        label: 'Low Stock',
+                        icon: Icons.warning_amber,
+                        color: Colors.red,
+                        count: lowCount);
+                  },
+                ),
               ),
               const SizedBox(width: 12),
-              _statStream(
-                label: 'Dispatched',
-                icon: Icons.local_shipping,
-                color: Colors.teal,
-                stream: _stockistId.isNotEmpty
-                    ? db.collection('orders')
-                    .where('stockistId', isEqualTo: _stockistId)
-                    .where('status', isEqualTo: 'dispatched')
-                    .snapshots()
-                    : db.collection('orders')
-                    .where('status', isEqualTo: 'dispatched')
-                    .snapshots(),
+              Expanded(
+                child: _stockistId.isEmpty
+                    ? _statPlaceholder('Dispatched', Icons.local_shipping, Colors.teal)
+                    : StreamBuilder<QuerySnapshot>(
+                  stream: db.collection('orders')
+                      .where('stockistId', isEqualTo: _stockistId)
+                      .where('status', isEqualTo: 'dispatched')
+                      .snapshots(),
+                  builder: (context, snap) => _statBox(
+                    label: 'Dispatched',
+                    icon: Icons.local_shipping,
+                    color: Colors.teal,
+                    count: snap.hasData ? snap.data!.docs.length : 0,
+                  ),
+                ),
               ),
             ]),
+
             const SizedBox(height: 24),
             const Text('Quick Actions',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
@@ -246,30 +294,23 @@ class _StockistDashboardScreenState extends State<StockistDashboardScreen> {
               children: [
                 _quickAction(context, 'Manage Orders', Icons.receipt_long,
                     Colors.blue, () {
-                      final nav =
-                      context.findAncestorStateOfType<_StockistMainScreenState>();
+                      final nav = context.findAncestorStateOfType<_StockistMainScreenState>();
                       nav?.setState(() => nav._currentIndex = 1);
                     }),
                 _quickAction(context, 'Manage Stock', Icons.inventory_2,
                     Colors.green, () {
-                      final nav =
-                      context.findAncestorStateOfType<_StockistMainScreenState>();
+                      final nav = context.findAncestorStateOfType<_StockistMainScreenState>();
                       nav?.setState(() => nav._currentIndex = 2);
                     }),
                 _quickAction(context, 'Report Low Stock', Icons.warning_amber,
                     Colors.orange, () {
-                      Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) =>
-                              const StockistReportLowStockScreen()));
+                      Navigator.push(context, MaterialPageRoute(
+                          builder: (_) => const StockistReportLowStockScreen()));
                     }),
                 _quickAction(context, 'Add Product', Icons.add_box,
                     Colors.purple, () {
-                      Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) => const StockistAddProductScreen()));
+                      Navigator.push(context, MaterialPageRoute(
+                          builder: (_) => const StockistAddProductScreen()));
                     }),
               ],
             ),
@@ -279,46 +320,53 @@ class _StockistDashboardScreenState extends State<StockistDashboardScreen> {
     );
   }
 
-  Widget _statStream({
+  Widget _statBox({
     required String label,
     required IconData icon,
     required Color color,
-    required Stream<QuerySnapshot> stream,
-    int Function(List<QueryDocumentSnapshot>)? countFn,
+    required int count,
   }) =>
-      Expanded(
-        child: StreamBuilder<QuerySnapshot>(
-          stream: stream,
-          builder: (context, snap) {
-            final count = snap.hasData
-                ? (countFn != null
-                ? countFn(snap.data!.docs)
-                : snap.data!.docs.length)
-                : 0;
-            return Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: color.withOpacity(0.3)),
-              ),
-              child: Row(children: [
-                Icon(icon, color: color, size: 26),
-                const SizedBox(width: 10),
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('$count',
-                      style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          color: color)),
-                  Text(label,
-                      style:
-                      const TextStyle(fontSize: 11, color: Colors.grey)),
-                ]),
-              ]),
-            );
-          },
+      Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.3)),
         ),
+        child: Row(children: [
+          Icon(icon, color: color, size: 26),
+          const SizedBox(width: 10),
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('$count',
+                style: TextStyle(
+                    fontSize: 22, fontWeight: FontWeight.bold, color: color)),
+            Text(label,
+                style: const TextStyle(fontSize: 11, color: Colors.grey)),
+          ]),
+        ]),
+      );
+
+  Widget _statPlaceholder(String label, IconData icon, Color color) =>
+      Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.2)),
+        ),
+        child: Row(children: [
+          Icon(icon, color: color.withOpacity(0.4), size: 26),
+          const SizedBox(width: 10),
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('—',
+                style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: color.withOpacity(0.4))),
+            Text(label,
+                style: const TextStyle(fontSize: 11, color: Colors.grey)),
+          ]),
+        ]),
       );
 
   Widget _quickAction(BuildContext context, String label, IconData icon,
@@ -364,24 +412,18 @@ class _StockistOrdersScreenState extends State<StockistOrdersScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 6, vsync: this);
-    _findStockistDocId();
+    _tabController = TabController(length: 5, vsync: this);
+    _loadStockistId();
   }
 
-  Future<void> _findStockistDocId() async {
+  Future<void> _loadStockistId() async {
     final uid = auth.currentUser?.uid;
-    if (uid == null) return;
-    final snap = await db
-        .collection('stockists')
-        .where('uid', isEqualTo: uid)
-        .limit(1)
-        .get();
-    if (snap.docs.isNotEmpty && mounted) {
+    if (uid != null) {
       setState(() {
-        _stockistDocId = snap.docs.first.id;
+        _stockistDocId = uid;
         _loading = false;
       });
-    } else if (mounted) {
+    } else {
       setState(() => _loading = false);
     }
   }
@@ -397,7 +439,6 @@ class _StockistOrdersScreenState extends State<StockistOrdersScreen>
       case 'pending':    return Colors.orange;
       case 'approved':   return Colors.blue;
       case 'rejected':   return Colors.red;
-      case 'billed':     return Colors.purple;
       case 'dispatched': return Colors.teal;
       case 'delivered':  return Colors.green;
       case 'cancelled':  return Colors.red;
@@ -426,7 +467,6 @@ class _StockistOrdersScreenState extends State<StockistOrdersScreen>
             Tab(text: 'Pending'),
             Tab(text: 'Approved'),
             Tab(text: 'Rejected'),
-            Tab(text: 'Billed'),
             Tab(text: 'Dispatched'),
             Tab(text: 'All'),
           ],
@@ -438,7 +478,6 @@ class _StockistOrdersScreenState extends State<StockistOrdersScreen>
           _StockistOrderTab(statusFilter: 'pending',    statusColor: _statusColor, stockistDocId: _stockistDocId),
           _StockistOrderTab(statusFilter: 'approved',   statusColor: _statusColor, stockistDocId: _stockistDocId),
           _StockistOrderTab(statusFilter: 'rejected',   statusColor: _statusColor, stockistDocId: _stockistDocId),
-          _StockistOrderTab(statusFilter: 'billed',     statusColor: _statusColor, stockistDocId: _stockistDocId),
           _StockistOrderTab(statusFilter: 'dispatched', statusColor: _statusColor, stockistDocId: _stockistDocId),
           _StockistOrderTab(statusFilter: null,         statusColor: _statusColor, stockistDocId: _stockistDocId),
         ],
@@ -486,9 +525,7 @@ class _StockistOrderTab extends StatelessWidget {
               Icon(Icons.inbox_outlined, size: 70, color: Colors.grey.shade300),
               const SizedBox(height: 16),
               Text(
-                statusFilter != null
-                    ? 'No $statusFilter orders'
-                    : 'No orders yet',
+                statusFilter != null ? 'No $statusFilter orders' : 'No orders yet',
                 style: TextStyle(color: Colors.grey.shade500, fontSize: 16),
               ),
             ]),
@@ -499,8 +536,8 @@ class _StockistOrderTab extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           itemCount: docs.length,
           itemBuilder: (context, i) {
-            final doc   = docs[i];
-            final data  = doc.data() as Map<String, dynamic>;
+            final doc    = docs[i];
+            final data   = doc.data() as Map<String, dynamic>;
             final status = data['status'] ?? 'pending';
             final color  = statusColor(status);
             final items  = (data['items'] as List?)?.length ?? 0;
@@ -555,12 +592,33 @@ class _StockistOrderTab extends StatelessWidget {
   }
 }
 
-class _StockistOrderDetailDialog extends StatelessWidget {
+class _StockistOrderDetailDialog extends StatefulWidget {
   final String orderId;
   final Map<String, dynamic> data;
   final Color Function(String) statusColor;
   const _StockistOrderDetailDialog(
       {required this.orderId, required this.data, required this.statusColor});
+
+  @override
+  State<_StockistOrderDetailDialog> createState() => _StockistOrderDetailDialogState();
+}
+
+class _StockistOrderDetailDialogState extends State<_StockistOrderDetailDialog> {
+  bool _isProcessing = false;
+
+  String get orderId => widget.orderId;
+  Map<String, dynamic> get data => widget.data;
+  Color Function(String) get statusColor => widget.statusColor;
+
+  Future<void> _runAction(Future<void> Function() action) async {
+    if (_isProcessing) return;
+    setState(() => _isProcessing = true);
+    try {
+      await action();
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -626,48 +684,110 @@ class _StockistOrderDetailDialog extends StatelessWidget {
                 style: const TextStyle(fontWeight: FontWeight.bold)),
           )),
           const Divider(),
-          if (data['billNumber'] != null && data['billNumber'].toString().isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.purple.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.purple.shade200),
-                ),
-                child: Row(children: [
-                  const Icon(Icons.receipt, color: Colors.purple, size: 16),
-                  const SizedBox(width: 8),
-                  Text('Bill No: ${data['billNumber']}',
-                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.purple)),
-                ]),
-              ),
-            ),
           Wrap(spacing: 8, runSpacing: 8, children: [
             if (status == 'pending') ...[
-              _actionBtn('Approve', Colors.blue, () async {
+              _actionBtn('Approve', Colors.blue, () => _runAction(() async {
                 final stockistUid = data['stockistUid']?.toString() ??
                     auth.currentUser?.uid ?? '';
 
                 try {
+                  // ── PRE-CHECK: verify sufficient stock ──────────────
+                  final stockDoc = await db
+                      .collection('stockist_stock')
+                      .doc(stockistUid)
+                      .get();
+                  // ✅ SAFE cast using helper
+                  final stockData = stockDoc.exists
+                      ? _parseStockDoc(stockDoc.data() as Map<String, dynamic>)
+                      : <String, int>{};
+
+                  final List<String> insufficientItems = [];
+                  for (final item in items) {
+                    final pid = item['productId']?.toString() ?? '';
+                    if (pid.isEmpty) continue;
+                    final available = stockData[pid] ?? 0;
+                    final ordered   = (item['quantity'] as num?)?.toInt() ?? 0;
+                    if (available < ordered) {
+                      insufficientItems.add(
+                          '${item['productName'] ?? pid}: need $ordered, have $available'
+                      );
+                    }
+                  }
+
+                  if (insufficientItems.isNotEmpty) {
+                    if (context.mounted) {
+                      showDialog(
+                        context: context,
+                        builder: (_) => AlertDialog(
+                          title: const Row(children: [
+                            Icon(Icons.warning_amber, color: Colors.orange),
+                            SizedBox(width: 8),
+                            Text('Insufficient Stock'),
+                          ]),
+                          content: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Cannot approve — the following items don\'t have enough stock:',
+                                style: TextStyle(fontSize: 13, color: Colors.grey),
+                              ),
+                              const SizedBox(height: 12),
+                              ...insufficientItems.map((msg) => Padding(
+                                padding: const EdgeInsets.only(bottom: 6),
+                                child: Row(children: [
+                                  const Icon(Icons.remove_circle,
+                                      color: Colors.red, size: 16),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(msg,
+                                        style: const TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600)),
+                                  ),
+                                ]),
+                              )),
+                            ],
+                          ),
+                          actions: [
+                            ElevatedButton(
+                              onPressed: () => Navigator.pop(context),
+                              style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.orange),
+                              child: const Text('OK'),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+                    return;
+                  }
+
+                  // ── Stock is sufficient, proceed ────────────────────
                   await db.runTransaction((txn) async {
                     final stockRef = db.collection('stockist_stock').doc(stockistUid);
-                    final stockDoc = await txn.get(stockRef);
-                    final stockData = stockDoc.exists
-                        ? (stockDoc.data() as Map<String, dynamic>)
-                        : <String, dynamic>{};
+                    final stockDocTxn = await txn.get(stockRef);
+                    // ✅ SAFE: only update numeric product entries
+                    final stockDataTxn = stockDocTxn.exists
+                        ? _parseStockDoc(stockDocTxn.data() as Map<String, dynamic>)
+                        : <String, int>{};
 
-                    final updatedStock = Map<String, dynamic>.from(stockData);
+                    final updatedStock = <String, dynamic>{};
+                    // Preserve ALL existing fields (including non-numeric like lowStockReminders
+                    // if any remain — though after migration they won't be here)
+                    if (stockDocTxn.exists) {
+                      updatedStock.addAll(stockDocTxn.data() as Map<String, dynamic>);
+                    }
+                    // Only update the product quantities
                     for (final item in items) {
                       final pid = item['productId']?.toString() ?? '';
                       if (pid.isEmpty) continue;
-                      final currentQty = (updatedStock[pid] as num?)?.toInt() ?? 0;
+                      final currentQty = stockDataTxn[pid] ?? 0;
                       final ordered = (item['quantity'] as num?)?.toInt() ?? 0;
                       updatedStock[pid] = (currentQty - ordered).clamp(0, 999999);
                     }
 
-                    if (stockDoc.exists) {
+                    if (stockDocTxn.exists) {
                       txn.update(stockRef, updatedStock);
                     } else {
                       txn.set(stockRef, updatedStock);
@@ -713,8 +833,8 @@ class _StockistOrderDetailDialog extends StatelessWidget {
                         backgroundColor: Colors.red));
                   }
                 }
-              }),
-              _actionBtn('Reject', Colors.red, () async {
+              })),
+              _actionBtn('Reject', Colors.red, () => _runAction(() async {
                 final reasonCtrl = TextEditingController();
                 final reason = await showDialog<String>(
                   context: context,
@@ -773,56 +893,10 @@ class _StockistOrderDetailDialog extends StatelessWidget {
                   }
                   if (context.mounted) Navigator.pop(context);
                 }
-              }),
+              })),
             ],
             if (status == 'approved')
-              _actionBtn('Generate Bill', Colors.purple, () async {
-                final billCtrl = TextEditingController();
-                final billNo = await showDialog<String>(
-                  context: context,
-                  builder: (_) => AlertDialog(
-                    title: const Text('Generate Bill'),
-                    content: TextField(
-                      controller: billCtrl,
-                      decoration: const InputDecoration(
-                          labelText: 'Bill Number',
-                          prefixIcon: Icon(Icons.receipt)),
-                    ),
-                    actions: [
-                      TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text('Cancel')),
-                      ElevatedButton(
-                        onPressed: () => Navigator.pop(context, billCtrl.text.trim()),
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.purple),
-                        child: const Text('Mark Billed'),
-                      ),
-                    ],
-                  ),
-                );
-                if (billNo != null && billNo.isNotEmpty) {
-                  await db.collection('orders').doc(orderId).update({
-                    'status':     'billed',
-                    'billNumber': billNo,
-                    'billedAt':   FieldValue.serverTimestamp(),
-                  });
-                  final mrId = data['mrId']?.toString() ?? '';
-                  if (mrId.isNotEmpty) {
-                    await db.collection('notifications').add({
-                      'mrId':      mrId,
-                      'title':     'Order Billed 🧾',
-                      'body':      'Bill #$billNo generated for your order.',
-                      'type':      'order_billed',
-                      'orderId':   orderId,
-                      'isRead':    false,
-                      'createdAt': FieldValue.serverTimestamp(),
-                    });
-                  }
-                  if (context.mounted) Navigator.pop(context);
-                }
-              }),
-            if (status == 'billed')
-              _actionBtn('Mark Dispatched', Colors.teal, () async {
+              _actionBtn('Mark Dispatched', Colors.teal, () => _runAction(() async {
                 await db.collection('orders').doc(orderId).update({
                   'status':       'dispatched',
                   'dispatchedAt': FieldValue.serverTimestamp(),
@@ -846,15 +920,15 @@ class _StockistOrderDetailDialog extends StatelessWidget {
                           content: Text('✅ Order dispatched!'),
                           backgroundColor: Colors.teal));
                 }
-              }),
+              })),
             if (status == 'dispatched')
-              _actionBtn('Mark Delivered', Colors.green, () async {
+              _actionBtn('Mark Delivered', Colors.green, () => _runAction(() async {
                 await db.collection('orders').doc(orderId)
                     .update({'status': 'delivered'});
                 if (context.mounted) Navigator.pop(context);
-              }),
+              })),
             OutlinedButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: _isProcessing ? null : () => Navigator.pop(context),
               child: const Text('Close'),
             ),
           ]),
@@ -865,10 +939,14 @@ class _StockistOrderDetailDialog extends StatelessWidget {
 
   Widget _actionBtn(String label, Color color, VoidCallback onPressed) =>
       ElevatedButton(
-        onPressed: onPressed,
+        onPressed: _isProcessing ? null : onPressed,
         style: ElevatedButton.styleFrom(
             backgroundColor: color, foregroundColor: Colors.white),
-        child: Text(label),
+        child: _isProcessing
+            ? const SizedBox(
+            width: 16, height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+            : Text(label),
       );
 }
 
@@ -904,14 +982,15 @@ class _StockistStockScreenState extends State<StockistStockScreen> {
       final doc = await db.collection('stockist_stock').doc(uid).get();
       if (mounted) {
         setState(() {
+          // ✅ SAFE: uses _parseStockDoc helper
           _stockistStockData = doc.exists
-              ? (doc.data() as Map<String, dynamic>)
-              .map((k, v) => MapEntry(k, (v as num?)?.toInt() ?? 0))
+              ? _parseStockDoc(doc.data() as Map<String, dynamic>)
               : {};
           _loadingStock = false;
         });
       }
     } catch (e) {
+      debugPrint('Error loading stock: $e');
       if (mounted) setState(() => _loadingStock = false);
     }
   }
@@ -1017,12 +1096,12 @@ class _StockistStockScreenState extends State<StockistStockScreen> {
                 final stock = _stockistStockData[p.id] ?? 0;
                 final minStock =
                     ((p.data() as Map<String, dynamic>)['minStock'] as num?)
-                        ?.toInt() ??
-                        10;
-                if (stock == 0)
+                        ?.toInt() ?? 10;
+                if (stock == 0) {
                   out++;
-                else if (stock <= minStock)
+                } else if (stock <= minStock) {
                   low++;
+                }
               }
 
               return Column(children: [
@@ -1148,15 +1227,22 @@ class _StockistProductCard extends StatelessWidget {
     );
   }
 
-  void _showSetLowStockReminder(BuildContext context) {
+  void _showSetLowStockReminder(BuildContext context) async {
     final uid = auth.currentUser!.uid;
-    // Load existing per-stockist threshold first, fall back to product minStock
-    final ctrl = TextEditingController(text: '${ (data['minStock'] as num?)?.toInt() ?? 10 }');
 
+    // ✅ Read from separate stockist_reminders collection
+    final reminderDoc = await db.collection('stockist_reminders').doc(uid).get();
+    final savedThreshold = reminderDoc.exists
+        ? (reminderDoc.data() as Map<String, dynamic>)[docId]
+        : null;
+    final ctrl = TextEditingController(
+        text: '${savedThreshold ?? (data['minStock'] as num?)?.toInt() ?? 10}');
+
+    if (!context.mounted) return;
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: Row(children: const [
+        title: const Row(children: [
           Icon(Icons.notifications_active, color: Colors.orange),
           SizedBox(width: 8),
           Text('Low Stock Reminder'),
@@ -1192,10 +1278,9 @@ class _StockistProductCard extends StatelessWidget {
                 );
                 return;
               }
-              // Store per-stockist reminder thresholds in stockist_stock doc
-              // under a nested map: lowStockReminders: { productId: threshold }
-              await db.collection('stockist_stock').doc(uid).set(
-                {'lowStockReminders': {docId: threshold}},
+              // ✅ Write to SEPARATE collection — never pollutes stockist_stock
+              await db.collection('stockist_reminders').doc(uid).set(
+                {docId: threshold},
                 SetOptions(merge: true),
               );
               await NotificationService.instance.show(
@@ -1341,8 +1426,6 @@ class _StockistProductCard extends StatelessWidget {
 
 // ─────────────────────────────────────────
 // STOCKIST ADD / EDIT PRODUCT SCREEN
-// Only updates product master info (name, code, price etc.)
-// Stock quantity is managed separately via stockist_stock
 // ─────────────────────────────────────────
 class StockistAddProductScreen extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -1421,11 +1504,9 @@ class _StockistAddProductScreenState extends State<StockistAddProductScreen> {
       String productId;
 
       if (_isEditing) {
-        // Update existing product master info
         await db.collection('products').doc(widget.docId).update(productData);
         productId = widget.docId!;
       } else {
-        // Add new product to master list
         productData['stock']     = 0;
         productData['minStock']  = 10;
         productData['createdAt'] = FieldValue.serverTimestamp();
@@ -1434,10 +1515,10 @@ class _StockistAddProductScreenState extends State<StockistAddProductScreen> {
         productId = ref.id;
       }
 
-      // Update stockist's own stock quantity if provided
       final qtyText = _stockQtyController.text.trim();
       if (qtyText.isNotEmpty) {
         final qty = int.tryParse(qtyText) ?? 0;
+        // ✅ Only writes a flat numeric value — safe
         await db.collection('stockist_stock').doc(uid).set(
           {productId: qty},
           SetOptions(merge: true),
@@ -1469,7 +1550,6 @@ class _StockistAddProductScreenState extends State<StockistAddProductScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Info banner
             Container(
               padding: const EdgeInsets.all(10),
               margin: const EdgeInsets.only(bottom: 16),
@@ -1489,8 +1569,6 @@ class _StockistAddProductScreenState extends State<StockistAddProductScreen> {
                 ),
               ]),
             ),
-
-            // Division selector
             const Text('Division', style: TextStyle(fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
             Row(
@@ -1524,9 +1602,7 @@ class _StockistAddProductScreenState extends State<StockistAddProductScreen> {
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: isSelected ? color : Colors.grey,
-                            fontWeight: isSelected
-                                ? FontWeight.bold
-                                : FontWeight.normal,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                           ),
                         ),
                       ),
@@ -1536,7 +1612,6 @@ class _StockistAddProductScreenState extends State<StockistAddProductScreen> {
               }).toList(),
             ),
             const SizedBox(height: 16),
-
             _field('Product Name *', _nameController,
                 Icons.medication, 'e.g. CalciMax Tablet'),
             _field('Product Code *', _codeController,
@@ -1549,8 +1624,6 @@ class _StockistAddProductScreenState extends State<StockistAddProductScreen> {
             _field('Description', _descriptionController,
                 Icons.description, 'Optional description',
                 maxLines: 2),
-
-            // My stock quantity section
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
@@ -1563,8 +1636,7 @@ class _StockistAddProductScreenState extends State<StockistAddProductScreen> {
                   Icon(Icons.store, color: Colors.teal, size: 18),
                   SizedBox(width: 8),
                   Text('My Stock Quantity',
-                      style: TextStyle(
-                          fontWeight: FontWeight.bold, color: Colors.teal)),
+                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.teal)),
                 ]),
                 const SizedBox(height: 4),
                 const Text(
@@ -1585,7 +1657,6 @@ class _StockistAddProductScreenState extends State<StockistAddProductScreen> {
               ]),
             ),
             const SizedBox(height: 20),
-
             if (_errorMessage.isNotEmpty)
               Container(
                 padding: const EdgeInsets.all(10),
@@ -1598,7 +1669,6 @@ class _StockistAddProductScreenState extends State<StockistAddProductScreen> {
                 child: Text(_errorMessage,
                     style: const TextStyle(color: Colors.red, fontSize: 13)),
               ),
-
             _isLoading
                 ? const Center(child: CircularProgressIndicator())
                 : ElevatedButton.icon(
@@ -1606,8 +1676,7 @@ class _StockistAddProductScreenState extends State<StockistAddProductScreen> {
               icon: Icon(_isEditing ? Icons.save : Icons.add),
               label: Text(
                 _isEditing ? 'Update Product' : 'Add Product',
-                style: const TextStyle(
-                    fontSize: 16, fontWeight: FontWeight.bold),
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               ),
             ),
             const SizedBox(height: 30),
@@ -1617,11 +1686,8 @@ class _StockistAddProductScreenState extends State<StockistAddProductScreen> {
     );
   }
 
-  Widget _field(
-      String label,
-      TextEditingController controller,
-      IconData icon,
-      String hint, {
+  Widget _field(String label, TextEditingController controller,
+      IconData icon, String hint, {
         TextInputType type = TextInputType.text,
         int maxLines = 1,
       }) {
@@ -1663,20 +1729,56 @@ class _StockistReportLowStockScreenState
   @override
   void initState() {
     super.initState();
-    _loadStockistStock();
+    // Migrate first (idempotent), then load
+    _migrateReminders().then((_) => _loadStockistStock());
   }
 
+  // ── One-time migration — safe to call repeatedly ──────────────
+  Future<void> _migrateReminders() async {
+    try {
+      final uid = auth.currentUser?.uid;
+      if (uid == null) return;
+
+      final stockDoc = await db.collection('stockist_stock').doc(uid).get();
+      if (!stockDoc.exists) return;
+
+      final data = stockDoc.data() as Map<String, dynamic>;
+      if (!data.containsKey('lowStockReminders')) return;
+
+      final reminders = data['lowStockReminders'];
+      if (reminders is! Map) return;
+
+      await db.collection('stockist_reminders').doc(uid).set(
+        Map<String, dynamic>.from(reminders),
+        SetOptions(merge: true),
+      );
+
+      await db.collection('stockist_stock').doc(uid).update({
+        'lowStockReminders': FieldValue.delete(),
+      });
+
+      debugPrint('✅ Reminders migrated for: $uid');
+    } catch (e) {
+      debugPrint('Migration error (non-fatal): $e');
+    }
+  }
+
+  // ── Safe stock loader ─────────────────────────────────────────
   Future<void> _loadStockistStock() async {
     final uid = auth.currentUser?.uid;
     if (uid == null) return;
-    final doc = await db.collection('stockist_stock').doc(uid).get();
-    if (mounted) {
-      setState(() {
-        _stockistStockData = doc.exists
-            ? (doc.data() as Map<String, dynamic>)
-            .map((k, v) => MapEntry(k, (v as num?)?.toInt() ?? 0))
-            : {};
-      });
+    try {
+      final doc = await db.collection('stockist_stock').doc(uid).get();
+      if (mounted) {
+        setState(() {
+          // ✅ SAFE: uses _parseStockDoc helper
+          _stockistStockData = doc.exists
+              ? _parseStockDoc(doc.data() as Map<String, dynamic>)
+              : {};
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading stock: $e');
     }
   }
 
@@ -1793,8 +1895,7 @@ class _StockistReportLowStockScreenState
                             color: divColor.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          child:
-                          Icon(Icons.medication, color: divColor, size: 20),
+                          child: Icon(Icons.medication, color: divColor, size: 20),
                         ),
                         const SizedBox(width: 10),
                         Expanded(
@@ -1838,8 +1939,7 @@ class _StockistReportLowStockScreenState
                 }),
                 const SizedBox(height: 16),
                 const Text('Additional Notes (optional)',
-                    style:
-                    TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                 const SizedBox(height: 8),
                 TextField(
                   controller: _notesCtrl,
@@ -1864,8 +1964,7 @@ class _StockistReportLowStockScreenState
                 onPressed: _submitting ? null : _submit,
                 icon: _submitting
                     ? const SizedBox(
-                    width: 18,
-                    height: 18,
+                    width: 18, height: 18,
                     child: CircularProgressIndicator(
                         strokeWidth: 2, color: Colors.white))
                     : const Icon(Icons.send),
@@ -1878,15 +1977,13 @@ class _StockistReportLowStockScreenState
     );
   }
 
-  Widget _chip(
-      String label, bool selected, Color color, VoidCallback onTap) =>
+  Widget _chip(String label, bool selected, Color color, VoidCallback onTap) =>
       GestureDetector(
         onTap: onTap,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
-            color:
-            selected ? color.withOpacity(0.15) : Colors.grey.shade100,
+            color: selected ? color.withOpacity(0.15) : Colors.grey.shade100,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
                 color: selected ? color : Colors.grey.shade300, width: 1.5),
@@ -1895,8 +1992,7 @@ class _StockistReportLowStockScreenState
               style: TextStyle(
                   color: selected ? color : Colors.grey.shade500,
                   fontSize: 12,
-                  fontWeight:
-                  selected ? FontWeight.bold : FontWeight.normal)),
+                  fontWeight: selected ? FontWeight.bold : FontWeight.normal)),
         ),
       );
 }
@@ -1947,8 +2043,7 @@ class StockistNotificationsScreen extends StatelessWidget {
                     size: 80, color: Colors.grey.shade300),
                 const SizedBox(height: 16),
                 Text('No notifications yet',
-                    style:
-                    TextStyle(color: Colors.grey.shade500, fontSize: 16)),
+                    style: TextStyle(color: Colors.grey.shade500, fontSize: 16)),
               ]),
             );
           }
@@ -1985,8 +2080,7 @@ class StockistNotificationsScreen extends StatelessWidget {
                   ),
                   title: Text(data['title'] ?? '',
                       style: TextStyle(
-                          fontWeight:
-                          isRead ? FontWeight.normal : FontWeight.bold,
+                          fontWeight: isRead ? FontWeight.normal : FontWeight.bold,
                           fontSize: 14)),
                   subtitle: Text(data['body'] ?? '',
                       style: const TextStyle(fontSize: 12)),
@@ -2056,12 +2150,10 @@ class StockistProfileScreen extends StatelessWidget {
                           fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
                   Text(u['email'] ?? '',
-                      style:
-                      const TextStyle(color: Colors.white70, fontSize: 13)),
+                      style: const TextStyle(color: Colors.white70, fontSize: 13)),
                   const SizedBox(height: 6),
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                     decoration: BoxDecoration(
                       color: Colors.white24,
                       borderRadius: BorderRadius.circular(20),
@@ -2072,22 +2164,20 @@ class StockistProfileScreen extends StatelessWidget {
                 ]),
               ),
               const SizedBox(height: 20),
-              _tile(Icons.phone,        'Phone', u['phone'] ?? 'Not set'),
+              _tile(Icons.phone,         'Phone', u['phone'] ?? 'Not set'),
               _tile(Icons.location_city, 'City',  u['city']  ?? 'Not set'),
               const SizedBox(height: 16),
               Card(
                 child: ListTile(
                   leading: const Icon(Icons.logout, color: Colors.red),
                   title: const Text('Logout',
-                      style: TextStyle(
-                          color: Colors.red, fontWeight: FontWeight.w600)),
+                      style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600)),
                   onTap: () async {
                     final confirm = await showDialog<bool>(
                       context: context,
                       builder: (_) => AlertDialog(
                         title: const Text('Logout'),
-                        content:
-                        const Text('Are you sure you want to logout?'),
+                        content: const Text('Are you sure you want to logout?'),
                         actions: [
                           TextButton(
                               onPressed: () => Navigator.pop(context, false),

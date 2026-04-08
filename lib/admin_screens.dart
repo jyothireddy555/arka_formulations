@@ -5,6 +5,8 @@ import 'package:geolocator/geolocator.dart';
 import 'auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
+import 'notification_service.dart'; // Added for notification deep-link fix
+import 'admin_mr_visit_history_screen.dart';
 
 final FirebaseAuth _auth = FirebaseAuth.instance;
 final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -29,6 +31,29 @@ class _AdminMainScreenState extends State<AdminMainScreen> {
     const AdminMrManagementScreen(),
     const AdminProfileScreen(),
   ];
+
+  // Handler for notification deep-links
+  void _onNotificationTab() {
+    final idx = NotificationService.tabIndexNotifier.value;
+    if (idx != null && idx < _screens.length) {
+      setState(() => _currentIndex = idx);
+      NotificationService.tabIndexNotifier.value = null;
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // Add listener for notification deep-links
+    NotificationService.tabIndexNotifier.addListener(_onNotificationTab);
+  }
+
+  @override
+  void dispose() {
+    // Remove listener to prevent memory leaks
+    NotificationService.tabIndexNotifier.removeListener(_onNotificationTab);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -192,7 +217,8 @@ class AdminDashboardScreen extends StatelessWidget {
                                         : 0;
                                     return StreamBuilder<QuerySnapshot>(
                                       stream: _db
-                                          .collection('stockists')
+                                          .collection('users')
+                                          .where('role', isEqualTo: 'stockist')
                                           .snapshots(),
                                       builder: (context, stockistSnap) {
                                         final stockistCount = stockistSnap.hasData
@@ -204,7 +230,7 @@ class AdminDashboardScreen extends StatelessWidget {
                                           physics:
                                           const NeverScrollableScrollPhysics(),
                                           crossAxisSpacing: 12,
-                                          mainAxisSfitpacing: 12,
+                                          mainAxisSpacing: 12,
                                           childAspectRatio: 1.6,
                                           children: [
                                             _statCard('Total MRs', '$mrCount',
@@ -853,6 +879,124 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
     }
   }
 
+  // ── ADD THIS METHOD to _AddDoctorScreenState ──────────────
+  void _showManualCoordinatesDialog() {
+    final latCtrl = TextEditingController(
+        text: _latitude != null ? _latitude!.toStringAsFixed(6) : '');
+    final lngCtrl = TextEditingController(
+        text: _longitude != null ? _longitude!.toStringAsFixed(6) : '');
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Row(children: [
+          Icon(Icons.location_on, color: Color(0xFF1565C0)),
+          SizedBox(width: 8),
+          Text('Enter Coordinates'),
+        ]),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(children: [
+                Icon(Icons.info_outline, color: Colors.blue, size: 14),
+                SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Open Google Maps → long press on location → copy coordinates.',
+                    style: TextStyle(fontSize: 11, color: Colors.blue),
+                  ),
+                ),
+              ]),
+            ),
+            const SizedBox(height: 14),
+            const Text('Latitude', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+            const SizedBox(height: 6),
+            TextField(
+              controller: latCtrl,
+              keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true, signed: true),
+              decoration: const InputDecoration(
+                hintText: 'e.g. 14.442453',
+                prefixIcon: Icon(Icons.my_location, size: 18),
+                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text('Longitude', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+            const SizedBox(height: 6),
+            TextField(
+              controller: lngCtrl,
+              keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true, signed: true),
+              decoration: const InputDecoration(
+                hintText: 'e.g. 79.986450',
+                prefixIcon: Icon(Icons.my_location, size: 18),
+                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final lat = double.tryParse(latCtrl.text.trim());
+              final lng = double.tryParse(lngCtrl.text.trim());
+              if (lat == null || lng == null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text('Please enter valid numbers for both fields.'),
+                      backgroundColor: Colors.red),
+                );
+                return;
+              }
+              if (lat < -90 || lat > 90) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text('Latitude must be between -90 and 90.'),
+                      backgroundColor: Colors.red),
+                );
+                return;
+              }
+              if (lng < -180 || lng > 180) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text('Longitude must be between -180 and 180.'),
+                      backgroundColor: Colors.red),
+                );
+                return;
+              }
+              setState(() {
+                _latitude  = lat;
+                _longitude = lng;
+                _errorMessage = '';
+              });
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                      '✅ Location set: ${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            },
+            child: const Text('Set Location'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _saveDoctor() async {
     final name = _nameController.text.trim();
     final hospital = _hospitalController.text.trim();
@@ -1006,6 +1150,7 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
                   setState(() => _selectedDivision = val!),
             ),
             const SizedBox(height: 20),
+            // REPLACE the existing location Container with this:
             _label('Doctor\'s Location'),
             const SizedBox(height: 6),
             Container(
@@ -1027,19 +1172,15 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
                   Row(
                     children: [
                       Icon(
-                        _latitude != null
-                            ? Icons.location_on
-                            : Icons.location_off,
-                        color: _latitude != null
-                            ? Colors.green
-                            : Colors.orange,
+                        _latitude != null ? Icons.location_on : Icons.location_off,
+                        color: _latitude != null ? Colors.green : Colors.orange,
                       ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           _latitude != null
-                              ? 'Location captured!\nLat: ${_latitude!.toStringAsFixed(6)}\nLng: ${_longitude!.toStringAsFixed(6)}'
-                              : 'No location set yet.\nGo to the doctor\'s clinic and tap the button below to capture location.',
+                              ? 'Location set ✅\nLat: ${_latitude!.toStringAsFixed(6)}\nLng: ${_longitude!.toStringAsFixed(6)}'
+                              : 'No location set yet.\nCapture your current location or enter coordinates manually.',
                           style: TextStyle(
                             fontSize: 13,
                             color: _latitude != null
@@ -1051,12 +1192,11 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
                     ],
                   ),
                   const SizedBox(height: 12),
+                  // ── Button 1: Capture GPS ──────────────────────────
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
-                      onPressed: _isFetchingLocation
-                          ? null
-                          : _getCurrentLocation,
+                      onPressed: _isFetchingLocation ? null : _getCurrentLocation,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: _latitude != null
                             ? Colors.green
@@ -1073,8 +1213,42 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
                       label: Text(_isFetchingLocation
                           ? 'Getting location...'
                           : _latitude != null
-                          ? 'Update Location'
+                          ? 'Update via GPS'
                           : 'Capture Current Location'),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  // ── Button 2: Enter manually ───────────────────────
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _isFetchingLocation ? null : _showManualCoordinatesDialog,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF1565C0),
+                        side: const BorderSide(color: Color(0xFF1565C0)),
+                      ),
+                      icon: const Icon(Icons.edit_location_alt, size: 18),
+                      label: const Text('Enter Coordinates Manually'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline, color: Colors.blue, size: 16),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'GPS: Go to clinic and tap "Capture Current Location".\nManual: Open Google Maps → long press the location → copy the coordinates shown.',
+                      style: TextStyle(fontSize: 11, color: Colors.blue),
                     ),
                   ),
                 ],
@@ -1493,7 +1667,77 @@ class AdminMrDetailScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 20),
               ],
-
+// ── Assigned Stockists ────────────────────────
+              StreamBuilder<DocumentSnapshot>(
+                stream: _db.collection('users').doc(mrId).snapshots(),
+                builder: (context, snap) {
+                  final assignedStockists =
+                      (snap.data?.data() as Map<String, dynamic>?)?['assignedStockists']
+                      as List? ?? [];
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Assigned Stockists',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                          TextButton.icon(
+                            onPressed: () => _showAssignStockistDialog(
+                                context, mrId, assignedStockists),
+                            icon: const Icon(Icons.edit, size: 16),
+                            label: const Text('Assign'),
+                          ),
+                        ],
+                      ),
+                      if (assignedStockists.isEmpty)
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.orange.shade200),
+                          ),
+                          child: const Row(children: [
+                            Icon(Icons.warning_amber, color: Colors.orange, size: 16),
+                            SizedBox(width: 8),
+                            Expanded(
+                              child: Text('No stockists assigned yet',
+                                  style: TextStyle(color: Colors.orange, fontSize: 13)),
+                            ),
+                          ]),
+                        )
+                      else
+                        FutureBuilder<QuerySnapshot>(
+                          future: _db
+                              .collection('users')
+                              .where(FieldPath.documentId,
+                              whereIn: assignedStockists.cast<String>())
+                              .get(),
+                          builder: (context, snap) {
+                            if (!snap.hasData) return const LinearProgressIndicator();
+                            return Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: snap.data!.docs.map((doc) {
+                                final data = doc.data() as Map<String, dynamic>;
+                                return Chip(
+                                  avatar: const Icon(Icons.store,
+                                      size: 16, color: Colors.brown),
+                                  label: Text(data['name'] ?? '',
+                                      style: const TextStyle(fontSize: 12)),
+                                  backgroundColor: Colors.brown.withOpacity(0.08),
+                                  side: BorderSide(color: Colors.brown.withOpacity(0.3)),
+                                );
+                              }).toList(),
+                            );
+                          },
+                        ),
+                      const SizedBox(height: 16),
+                    ],
+                  );
+                },
+              ),
               // ── History header ────────────────────────────
               Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                 const Text('Commission History',
@@ -1613,6 +1857,69 @@ class AdminMrDetailScreen extends StatelessWidget {
             ]),
           );
         },
+      ),
+    );
+  }
+
+  void _showAssignStockistDialog(BuildContext context, String mrId, List<dynamic> currentStockists) async {
+    final stockistsSnap = await _db.collection('users')
+        .where('role', isEqualTo: 'stockist')
+        .where('isActive', isEqualTo: true)
+        .get();
+
+    List<String> selectedIds = List<String>.from(currentStockists);
+
+    if (!context.mounted) return;
+    showDialog(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: const Text('Assign Stockists to MR'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: stockistsSnap.docs.isEmpty
+                ? const Text('No stockists found.')
+                : ListView(
+              shrinkWrap: true,
+              children: stockistsSnap.docs.map((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+                final isSelected = selectedIds.contains(doc.id);
+                return CheckboxListTile(
+                  value: isSelected,
+                  title: Text(data['name'] ?? ''),
+                  subtitle: Text(data['city'] ?? ''),
+                  onChanged: (val) => setD(() {
+                    if (val == true) {
+                      selectedIds.add(doc.id);
+                    } else {
+                      selectedIds.remove(doc.id);
+                    }
+                  }),
+                );
+              }).toList(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                await _db.collection('users').doc(mrId)
+                    .update({'assignedStockists': selectedIds});
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text('Stockists assigned successfully!'),
+                    backgroundColor: Colors.green,
+                  ));
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1795,19 +2102,14 @@ class _AddMrScreenState extends State<AddMrScreen> {
         'createdBy': currentAdmin.uid,
       });
 
-      // 🔥 GET ALL PRODUCTS
       final productsSnapshot =
-      await db.collection('products').get();
+      await _db.collection('products').get();
 
-// 🔥 PREPARE STOCK MAP
       Map<String, int> stockData = {};
-
       for (var doc in productsSnapshot.docs) {
-        stockData[doc.id] = 0; // default stock
+        stockData[doc.id] = 0;
       }
-
-// 🔥 CREATE STOCK DOCUMENT
-      await db.collection('stockist_stock').doc(uid).set(stockData);
+      await _db.collection('stockist_stock').doc(uid).set(stockData);
 
       await secondaryAuth.signOut();
       await secondaryApp.delete();
@@ -1967,7 +2269,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 6, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
   }
 
   @override
@@ -1981,7 +2283,6 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
       case 'pending':    return Colors.orange;
       case 'approved':   return Colors.blue;
       case 'rejected':   return Colors.red;
-      case 'billed':     return Colors.purple;
       case 'dispatched': return Colors.teal;
       case 'delivered':  return Colors.green;
       case 'cancelled':  return Colors.red;
@@ -2004,7 +2305,6 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
             Tab(text: 'Pending'),
             Tab(text: 'Approved'),
             Tab(text: 'Rejected'),
-            Tab(text: 'Billed'),
             Tab(text: 'Dispatched'),
             Tab(text: 'All'),
           ],
@@ -2016,7 +2316,6 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
           _OrderTab(statusFilter: 'pending',    statusColor: _statusColor),
           _OrderTab(statusFilter: 'approved',   statusColor: _statusColor),
           _OrderTab(statusFilter: 'rejected',   statusColor: _statusColor),
-          _OrderTab(statusFilter: 'billed',     statusColor: _statusColor),
           _OrderTab(statusFilter: 'dispatched', statusColor: _statusColor),
           _OrderTab(statusFilter: null,         statusColor: _statusColor),
         ],
@@ -2152,12 +2451,39 @@ class _OrderTab extends StatelessWidget {
   }
 }
 
-class _AdminOrderDetailDialog extends StatelessWidget {
+// ─────────────────────────────────────────
+// ADMIN ORDER DETAIL DIALOG — FIXED
+// Converted to StatefulWidget to prevent double-tap / multiple submissions
+// ─────────────────────────────────────────
+class _AdminOrderDetailDialog extends StatefulWidget {
   final String orderId;
   final Map<String, dynamic> data;
   final Color Function(String) statusColor;
   const _AdminOrderDetailDialog(
       {required this.orderId, required this.data, required this.statusColor});
+
+  @override
+  State<_AdminOrderDetailDialog> createState() =>
+      _AdminOrderDetailDialogState();
+}
+
+class _AdminOrderDetailDialogState extends State<_AdminOrderDetailDialog> {
+  bool _isProcessing = false;
+
+  String get orderId => widget.orderId;
+  Map<String, dynamic> get data => widget.data;
+  Color Function(String) get statusColor => widget.statusColor;
+
+  /// Runs an async action with processing guard — prevents double-tap.
+  Future<void> _runAction(Future<void> Function() action) async {
+    if (_isProcessing) return;
+    setState(() => _isProcessing = true);
+    try {
+      await action();
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2235,45 +2561,135 @@ class _AdminOrderDetailDialog extends StatelessWidget {
               child: Text('Remarks: ${data['remarks']}',
                   style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
             ),
-          if (data['billNumber'] != null && data['billNumber'].toString().isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.purple.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.purple.shade200),
-                ),
-                child: Row(children: [
-                  const Icon(Icons.receipt, color: Colors.purple, size: 16),
-                  const SizedBox(width: 8),
-                  Text('Bill No: ${data['billNumber']}',
-                      style: const TextStyle(
-                          fontWeight: FontWeight.bold, color: Colors.purple)),
-                ]),
-              ),
-            ),
           Wrap(spacing: 8, runSpacing: 8, children: [
             if (status == 'pending') ...[
-              _actionBtn('Approve', Colors.blue, () async {
-                await _db.collection('orders').doc(orderId)
-                    .update({'status': 'approved', 'approvedAt': FieldValue.serverTimestamp()});
-                final mrId = data['mrId']?.toString() ?? '';
-                if (mrId.isNotEmpty) {
-                  await _db.collection('notifications').add({
-                    'mrId':      mrId,
-                    'title':     'Order Approved ✅',
-                    'body':      'Your order for ${data['doctorName'] ?? 'doctor'} has been approved.',
-                    'type':      'order_approved',
-                    'orderId':   orderId,
-                    'isRead':    false,
-                    'createdAt': FieldValue.serverTimestamp(),
+              _actionBtn('Approve', Colors.blue, () => _runAction(() async {
+                final stockistUid = data['stockistId']?.toString() ?? '';
+                try {
+                  // ── PRE-CHECK: verify sufficient stock ──────────────
+                  if (stockistUid.isNotEmpty) {
+                    final stockDoc = await _db
+                        .collection('stockist_stock')
+                        .doc(stockistUid)
+                        .get();
+                    final stockData = stockDoc.exists
+                        ? (stockDoc.data() as Map<String, dynamic>)
+                        : <String, dynamic>{};
+
+                    final List<String> insufficientItems = [];
+                    for (final item in items) {
+                      final pid = item['productId']?.toString() ?? '';
+                      if (pid.isEmpty) continue;
+                      final available = (stockData[pid] as num?)?.toInt() ?? 0;
+                      final ordered   = (item['quantity'] as num?)?.toInt() ?? 0;
+                      if (available < ordered) {
+                        insufficientItems.add(
+                            '${item['productName'] ?? pid}: need $ordered, have $available'
+                        );
+                      }
+                    }
+
+                    if (insufficientItems.isNotEmpty) {
+                      if (context.mounted) {
+                        showDialog(
+                          context: context,
+                          builder: (_) => AlertDialog(
+                            title: const Row(children: [
+                              Icon(Icons.warning_amber, color: Colors.orange),
+                              SizedBox(width: 8),
+                              Text('Insufficient Stock'),
+                            ]),
+                            content: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Cannot approve — the following items don\'t have enough stock:',
+                                  style: TextStyle(fontSize: 13, color: Colors.grey),
+                                ),
+                                const SizedBox(height: 12),
+                                ...insufficientItems.map((msg) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 6),
+                                  child: Row(children: [
+                                    const Icon(Icons.remove_circle,
+                                        color: Colors.red, size: 16),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(msg,
+                                          style: const TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w600)),
+                                    ),
+                                  ]),
+                                )),
+                              ],
+                            ),
+                            actions: [
+                              ElevatedButton(
+                                onPressed: () => Navigator.pop(context),
+                                style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.orange),
+                                child: const Text('OK'),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+                      return; // ← stop, don't approve
+                    }
+                  }
+
+                  // ── Stock is sufficient (or no stockist assigned), proceed ──
+                  await _db.runTransaction((txn) async {
+                    if (stockistUid.isNotEmpty) {
+                      final stockRef = _db.collection('stockist_stock').doc(stockistUid);
+                      final stockDoc = await txn.get(stockRef);
+                      final stockData = stockDoc.exists
+                          ? (stockDoc.data() as Map<String, dynamic>)
+                          : <String, dynamic>{};
+
+                      final updated = Map<String, dynamic>.from(stockData);
+                      for (final item in items) {
+                        final pid = item['productId']?.toString() ?? '';
+                        if (pid.isEmpty) continue;
+                        final current = (updated[pid] as num?)?.toInt() ?? 0;
+                        final ordered = (item['quantity'] as num?)?.toInt() ?? 0;
+                        updated[pid] = (current - ordered).clamp(0, 999999);
+                      }
+                      if (stockDoc.exists) {
+                        txn.update(stockRef, updated);
+                      } else {
+                        txn.set(stockRef, updated);
+                      }
+                    }
+
+                    txn.update(_db.collection('orders').doc(orderId), {
+                      'status': 'approved',
+                      'approvedAt': FieldValue.serverTimestamp(),
+                    });
                   });
+
+                  final mrId = data['mrId']?.toString() ?? '';
+                  if (mrId.isNotEmpty) {
+                    await _db.collection('notifications').add({
+                      'mrId':      mrId,
+                      'title':     'Order Approved ✅',
+                      'body':      'Your order for ${data['doctorName'] ?? 'doctor'} has been approved.',
+                      'type':      'order_approved',
+                      'orderId':   orderId,
+                      'isRead':    false,
+                      'createdAt': FieldValue.serverTimestamp(),
+                    });
+                  }
+                  if (context.mounted) Navigator.pop(context);
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
+                  }
                 }
-                if (context.mounted) Navigator.pop(context);
-              }),
-              _actionBtn('Cancel', Colors.red, () async {
+              })),
+              _actionBtn('Cancel', Colors.red, () => _runAction(() async {
                 await _db.collection('orders').doc(orderId)
                     .update({'status': 'cancelled'});
                 final mrId = data['mrId']?.toString() ?? '';
@@ -2289,66 +2705,10 @@ class _AdminOrderDetailDialog extends StatelessWidget {
                   });
                 }
                 if (context.mounted) Navigator.pop(context);
-              }),
+              })),
             ],
             if (status == 'approved')
-              _actionBtn('Generate Bill', Colors.purple, () async {
-                final billCtrl = TextEditingController();
-                final billNo = await showDialog<String>(
-                  context: context,
-                  builder: (_) => AlertDialog(
-                    title: const Text('Generate Bill'),
-                    content: Column(mainAxisSize: MainAxisSize.min, children: [
-                      const Text('Enter bill number to mark this order as billed.',
-                          style: TextStyle(color: Colors.grey, fontSize: 13)),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: billCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Bill Number',
-                          prefixIcon: Icon(Icons.receipt),
-                        ),
-                      ),
-                    ]),
-                    actions: [
-                      TextButton(onPressed: () => Navigator.pop(context),
-                          child: const Text('Cancel')),
-                      ElevatedButton(
-                        onPressed: () => Navigator.pop(context, billCtrl.text.trim()),
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.purple),
-                        child: const Text('Mark Billed'),
-                      ),
-                    ],
-                  ),
-                );
-                if (billNo != null && billNo.isNotEmpty) {
-                  await _db.collection('orders').doc(orderId).update({
-                    'status': 'billed',
-                    'billNumber': billNo,
-                    'billedAt': FieldValue.serverTimestamp(),
-                  });
-                  final mrId = data['mrId']?.toString() ?? '';
-                  if (mrId.isNotEmpty) {
-                    await _db.collection('notifications').add({
-                      'mrId':      mrId,
-                      'title':     'Order Billed 🧾',
-                      'body':      'Bill #$billNo generated for your order (${data['doctorName'] ?? 'doctor'}).',
-                      'type':      'order_billed',
-                      'orderId':   orderId,
-                      'isRead':    false,
-                      'createdAt': FieldValue.serverTimestamp(),
-                    });
-                  }
-                  if (context.mounted) {
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                        content: Text('✅ Bill #$billNo generated!'),
-                        backgroundColor: Colors.purple));
-                  }
-                }
-              }),
-            if (status == 'billed')
-              _actionBtn('Mark Dispatched', Colors.teal, () async {
+              _actionBtn('Mark Dispatched', Colors.teal, () => _runAction(() async {
                 try {
                   await _db.runTransaction((txn) async {
                     final productRefs = <String, DocumentReference>{};
@@ -2399,15 +2759,15 @@ class _AdminOrderDetailDialog extends StatelessWidget {
                         content: Text('Error: $e'), backgroundColor: Colors.red));
                   }
                 }
-              }),
+              })),
             if (status == 'dispatched')
-              _actionBtn('Mark Delivered', Colors.green, () async {
+              _actionBtn('Mark Delivered', Colors.green, () => _runAction(() async {
                 await _db.collection('orders').doc(orderId)
                     .update({'status': 'delivered'});
                 if (context.mounted) Navigator.pop(context);
-              }),
+              })),
             OutlinedButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: _isProcessing ? null : () => Navigator.pop(context),
               child: const Text('Close'),
             ),
           ]),
@@ -2418,10 +2778,14 @@ class _AdminOrderDetailDialog extends StatelessWidget {
 
   Widget _actionBtn(String label, Color color, VoidCallback onPressed) =>
       ElevatedButton(
-        onPressed: onPressed,
+        onPressed: _isProcessing ? null : onPressed,
         style: ElevatedButton.styleFrom(
             backgroundColor: color, foregroundColor: Colors.white),
-        child: Text(label),
+        child: _isProcessing
+            ? const SizedBox(
+            width: 16, height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+            : Text(label),
       );
 }
 
@@ -2664,7 +3028,6 @@ class _AdminMrReportsScreenState extends State<AdminMrReportsScreen> {
     );
   }
 }
-
 // ─────────────────────────────────────────
 // ADMIN STOCK SCREEN
 // ─────────────────────────────────────────
@@ -2680,13 +3043,13 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
   String _searchQuery = '';
   final List<String> _divisions = ['All', 'Ortho', 'Gynec', 'General'];
 
-  // Stockist filter
-  String _selectedStockistView = 'overall'; // 'overall' or stockist UID
+  String _selectedStockistView = 'overall';
   String _selectedStockistLabel = 'Overall (Products)';
   List<Map<String, dynamic>> _stockists = [];
   Map<String, int> _stockistStockData = {};
   bool _loadingStockists = true;
   bool _loadingStockistStock = false;
+  bool _addingToAll = false; // ← prevent double-tap on "Add to All"
 
   @override
   void initState() {
@@ -2696,18 +3059,21 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
 
   Future<void> _loadStockists() async {
     try {
-      final snap = await _db
-          .collection('stockists')
+      // Admin should see ALL stockists, not just assigned ones
+      final snap = await db
+          .collection('users')
+          .where('role', isEqualTo: 'stockist')
           .where('isActive', isEqualTo: true)
           .orderBy('name')
           .get();
+
       if (mounted) {
         setState(() {
           _stockists = snap.docs.map((d) {
-            final data = d.data();
+            final data = d.data() as Map<String, dynamic>;
             return {
               'id': d.id,
-              'uid': data['uid'] ?? '',
+              'uid': d.id,
               'name': data['name'] ?? 'Unknown',
               'city': data['city'] ?? '',
             };
@@ -2721,13 +3087,20 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
   }
 
   Future<void> _loadStockistStock(String stockistUid) async {
-    setState(() => _loadingStockistStock = true);
+    if (!mounted) return;
+    setState(() {
+      _loadingStockistStock = true;
+      _stockistStockData = {}; // clear stale data while loading
+    });
     try {
-      final doc = await _db.collection('stockist_stock').doc(stockistUid).get();
+      final doc =
+      await _db.collection('stockist_stock').doc(stockistUid).get();
       if (mounted) {
-        final data = doc.exists ? (doc.data() ?? {}) : <String, dynamic>{};
+        final data =
+        doc.exists ? (doc.data() ?? {}) : <String, dynamic>{};
         setState(() {
-          _stockistStockData = data.map((k, v) => MapEntry(k, (v as num?)?.toInt() ?? 0));
+          _stockistStockData =
+              data.map((k, v) => MapEntry(k, (v as num?)?.toInt() ?? 0));
           _loadingStockistStock = false;
         });
       }
@@ -2736,17 +3109,29 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
     }
   }
 
+  // Called by _ProductCard after a successful stockist-stock update
+  // so the list refreshes immediately without navigation
+  void _onStockistStockUpdated(String productId, int newQty) {
+    if (!mounted) return;
+    setState(() {
+      _stockistStockData[productId] = newQty;
+    });
+  }
+
   void _showAddStockToAllDialog(BuildContext context) async {
+    if (_addingToAll) return; // guard double-tap
     final productsSnap = await _db.collection('products').get();
     String? selectedProductId;
     String? selectedProductName;
     final qtyController = TextEditingController();
+    bool saving = false;
 
     if (!context.mounted) return;
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (_) => StatefulBuilder(
-        builder: (context, setStateDialog) => AlertDialog(
+        builder: (ctx, setStateDialog) => AlertDialog(
           title: const Text('Add Stock to All Stockists'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -2761,7 +3146,9 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
                     child: Text(data['name'] ?? ''),
                   );
                 }).toList(),
-                onChanged: (val) => setStateDialog(() {
+                onChanged: saving
+                    ? null // disable while saving
+                    : (val) => setStateDialog(() {
                   selectedProductId = val;
                   selectedProductName = productsSnap.docs
                       .firstWhere((d) => d.id == val)
@@ -2772,42 +3159,107 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
               TextField(
                 controller: qtyController,
                 keyboardType: TextInputType.number,
+                enabled: !saving,
                 decoration: const InputDecoration(
                   labelText: 'Quantity to Add',
                   prefixIcon: Icon(Icons.add_box),
                 ),
               ),
+              if (saving) ...[
+                const SizedBox(height: 16),
+                const Row(
+                  children: [
+                    SizedBox(
+                        width: 18,
+                        height: 18,
+                        child:
+                        CircularProgressIndicator(strokeWidth: 2)),
+                    SizedBox(width: 10),
+                    Text('Adding to all stockists…',
+                        style: TextStyle(fontSize: 13)),
+                  ],
+                ),
+              ],
             ],
           ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel')),
+              onPressed:
+              saving ? null : () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
             ElevatedButton(
-              onPressed: () async {
+              onPressed: saving
+                  ? null // prevent double-tap
+                  : () async {
                 if (selectedProductId == null) return;
-                final qty = int.tryParse(qtyController.text.trim()) ?? 0;
-                if (qty <= 0) return;
-                final stockistsSnap = await _db.collection('users')
-                    .where('role', isEqualTo: 'stockist').get();
-                for (final s in stockistsSnap.docs) {
-                  final uid = s.id;
-                  final stockDoc = await _db
-                      .collection('stockist_stock').doc(uid).get();
-                  final current = stockDoc.exists
-                      ? (stockDoc.data()?[selectedProductId!] as num?)?.toInt() ?? 0
-                      : 0;
-                  await _db.collection('stockist_stock').doc(uid).set(
-                    {selectedProductId!: current + qty},
-                    SetOptions(merge: true),
+                final qty =
+                    int.tryParse(qtyController.text.trim()) ?? 0;
+                if (qty <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                        content:
+                        Text('Please enter a valid quantity'),
+                        backgroundColor: Colors.orange),
                   );
+                  return;
                 }
-                if (context.mounted) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                    content: Text('✅ Added $qty units of $selectedProductName to all stockists!'),
-                    backgroundColor: Colors.green,
-                  ));
+                setStateDialog(() => saving = true);
+                setState(() => _addingToAll = true);
+                try {
+                  final stockistsSnap = await _db
+                      .collection('users')
+                      .where('role', isEqualTo: 'stockist')
+                      .get();
+                  final batch = _db.batch();
+                  for (final s in stockistsSnap.docs) {
+                    final uid = s.id;
+                    final stockRef = _db
+                        .collection('stockist_stock')
+                        .doc(uid);
+                    final stockDoc = await stockRef.get();
+                    final current = stockDoc.exists
+                        ? (stockDoc.data()?[selectedProductId!]
+                    as num?)
+                        ?.toInt() ??
+                        0
+                        : 0;
+                    batch.set(
+                      stockRef,
+                      {selectedProductId!: current + qty},
+                      SetOptions(merge: true),
+                    );
+                  }
+                  await batch.commit();
+
+                  // If currently viewing a stockist, refresh immediately
+                  if (_selectedStockistView != 'overall') {
+                    await _loadStockistStock(
+                        _selectedStockistView);
+                  }
+
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                            '✅ Added $qty units of $selectedProductName to all stockists!'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (ctx.mounted)
+                    setStateDialog(() => saving = false);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                          content: Text('❌ Failed. Try again.'),
+                          backgroundColor: Colors.red),
+                    );
+                  }
+                } finally {
+                  if (mounted) setState(() => _addingToAll = false);
                 }
               },
               child: const Text('Add to All'),
@@ -2826,13 +3278,24 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
       appBar: AppBar(
         title: const Text('Stock Management'),
         actions: [
-          IconButton(
+          // "Add to all stockists" button — only icon, no add-product duplicate
+          _addingToAll
+              ? const Padding(
+            padding: EdgeInsets.all(12),
+            child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: Colors.white)),
+          )
+              : IconButton(
             icon: const Icon(Icons.group_add),
             tooltip: 'Add stock to all stockists',
             onPressed: () => _showAddStockToAllDialog(context),
           ),
           IconButton(
             icon: const Icon(Icons.add),
+            tooltip: 'Add new product',
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const AddProductScreen()),
@@ -2850,19 +3313,35 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
       ),
       body: Column(
         children: [
-          // Stockist selector
-          Container(
+          // ── Stockist selector ──────────────────────────────
+          _loadingStockists
+              ? const Padding(
+            padding: EdgeInsets.all(16),
+            child: LinearProgressIndicator(),
+          )
+              : Container(
             margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            padding: const EdgeInsets.symmetric(
+                horizontal: 12, vertical: 4),
             decoration: BoxDecoration(
-              color: showingStockist ? Colors.teal.shade50 : Colors.blue.shade50,
+              color: showingStockist
+                  ? Colors.teal.shade50
+                  : Colors.blue.shade50,
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                  color: showingStockist ? Colors.teal.shade200 : Colors.blue.shade200),
+                  color: showingStockist
+                      ? Colors.teal.shade200
+                      : Colors.blue.shade200),
             ),
             child: Row(children: [
-              Icon(showingStockist ? Icons.store : Icons.inventory_2,
-                  color: showingStockist ? Colors.teal : Colors.blue, size: 20),
+              Icon(
+                  showingStockist
+                      ? Icons.store
+                      : Icons.inventory_2,
+                  color: showingStockist
+                      ? Colors.teal
+                      : Colors.blue,
+                  size: 20),
               const SizedBox(width: 8),
               Expanded(
                 child: DropdownButtonHideUnderline(
@@ -2872,12 +3351,18 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
                     items: [
                       const DropdownMenuItem(
                         value: 'overall',
-                        child: Text('Overall (All Products)',
-                            style: TextStyle(fontWeight: FontWeight.w600)),
+                        child: Text(
+                          'Overall (All Products)',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w600),
+                        ),
                       ),
+                      // Only real stockists appear here (admin excluded
+                      // because _loadStockists filters role == 'stockist')
                       ..._stockists.map((s) => DropdownMenuItem(
                         value: s['uid'] as String,
-                        child: Text('${s['name']}${s['city'] != '' ? ' (${s['city']})' : ''}'),
+                        child: Text(
+                            '${s['name']}${s['city'] != '' ? ' (${s['city']})' : ''}'),
                       )),
                     ],
                     onChanged: (val) {
@@ -2885,11 +3370,14 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
                       setState(() {
                         _selectedStockistView = val;
                         if (val == 'overall') {
-                          _selectedStockistLabel = 'Overall (Products)';
+                          _selectedStockistLabel =
+                          'Overall (Products)';
                           _stockistStockData = {};
                         } else {
-                          final s = _stockists.firstWhere((x) => x['uid'] == val);
-                          _selectedStockistLabel = s['name'] as String;
+                          final s = _stockists.firstWhere(
+                                  (x) => x['uid'] == val);
+                          _selectedStockistLabel =
+                          s['name'] as String;
                           _loadStockistStock(val);
                         }
                       });
@@ -2899,23 +3387,29 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
               ),
             ]),
           ),
+
+          // ── Search ─────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
             child: TextField(
-              onChanged: (val) => setState(() => _searchQuery = val.toLowerCase()),
+              onChanged: (val) =>
+                  setState(() => _searchQuery = val.toLowerCase()),
               decoration: InputDecoration(
-                hintText: 'Search products...',
+                hintText: 'Search products…',
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: _searchQuery.isNotEmpty
                     ? IconButton(
                   icon: const Icon(Icons.clear),
-                  onPressed: () => setState(() => _searchQuery = ''),
+                  onPressed: () =>
+                      setState(() => _searchQuery = ''),
                 )
                     : null,
               ),
             ),
           ),
           const SizedBox(height: 4),
+
+          // ── Division chips ──────────────────────────────────
           SizedBox(
             height: 40,
             child: ListView.builder(
@@ -2930,8 +3424,10 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
                   child: FilterChip(
                     label: Text(div),
                     selected: isSelected,
-                    onSelected: (_) => setState(() => _filterDivision = div),
-                    selectedColor: const Color(0xFF1565C0).withOpacity(0.2),
+                    onSelected: (_) =>
+                        setState(() => _filterDivision = div),
+                    selectedColor:
+                    const Color(0xFF1565C0).withOpacity(0.2),
                     checkmarkColor: const Color(0xFF1565C0),
                   ),
                 );
@@ -2939,7 +3435,8 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          // Summary bar
+
+          // ── Summary bar ─────────────────────────────────────
           StreamBuilder<QuerySnapshot>(
             stream: _db.collection('products').snapshots(),
             builder: (context, snapshot) {
@@ -2948,7 +3445,7 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
 
               if (showingStockist && _loadingStockistStock) {
                 return const Padding(
-                  padding: EdgeInsets.all(8),
+                  padding: EdgeInsets.symmetric(horizontal: 12),
                   child: LinearProgressIndicator(),
                 );
               }
@@ -2960,19 +3457,28 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
               if (showingStockist) {
                 for (final d in docs) {
                   final qty = _stockistStockData[d.id] ?? 0;
-                  if (qty == 0) outOfStock++;
-                  else if (qty <= (((d.data() as Map<String, dynamic>)['minStock'] as num?)?.toInt() ?? 10)) lowStock++;
+                  if (qty == 0) {
+                    outOfStock++;
+                  } else if (qty <=
+                      (((d.data() as Map<String, dynamic>)['minStock']
+                      as num?)
+                          ?.toInt() ??
+                          10)) {
+                    lowStock++;
+                  }
                 }
               } else {
+                // Overall view: use product-level stock field
                 lowStock = docs.where((d) {
                   final data = d.data() as Map<String, dynamic>;
-                  final stock = data['stock'] ?? 0;
-                  final minStock = data['minStock'] ?? 10;
+                  final stock = (data['stock'] as num?)?.toInt() ?? 0;
+                  final minStock =
+                      (data['minStock'] as num?)?.toInt() ?? 10;
                   return stock <= minStock && stock > 0;
                 }).length;
                 outOfStock = docs.where((d) {
                   final data = d.data() as Map<String, dynamic>;
-                  return (data['stock'] ?? 0) == 0;
+                  return ((data['stock'] as num?)?.toInt() ?? 0) == 0;
                 }).length;
               }
 
@@ -2988,14 +3494,18 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
                     _summaryItem('Total', '$total', Colors.blue),
-                    _summaryItem('Low Stock', '$lowStock', Colors.orange),
-                    _summaryItem('Out of Stock', '$outOfStock', Colors.red),
+                    _summaryItem(
+                        'Low Stock', '$lowStock', Colors.orange),
+                    _summaryItem(
+                        'Out of Stock', '$outOfStock', Colors.red),
                   ],
                 ),
               );
             },
           ),
           const SizedBox(height: 8),
+
+          // ── Product list ────────────────────────────────────
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: _db
@@ -3011,11 +3521,13 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
                     child: Padding(
                       padding: const EdgeInsets.all(24),
                       child: Text('Error: ${snapshot.error}',
-                          style: const TextStyle(color: Colors.red)),
+                          style:
+                          const TextStyle(color: Colors.red)),
                     ),
                   );
                 }
-                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                if (!snapshot.hasData ||
+                    snapshot.data!.docs.isEmpty) {
                   return Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -3025,34 +3537,48 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
                         const SizedBox(height: 16),
                         Text('No products added yet',
                             style: TextStyle(
-                                color: Colors.grey.shade500, fontSize: 16)),
+                                color: Colors.grey.shade500,
+                                fontSize: 16)),
                         const SizedBox(height: 8),
                         Text('Tap + Add Product to get started',
                             style: TextStyle(
-                                color: Colors.grey.shade400, fontSize: 13)),
+                                color: Colors.grey.shade400,
+                                fontSize: 13)),
                       ],
                     ),
                   );
                 }
+
+                // Stockist-loading overlay while stock data arrives
+                if (showingStockist && _loadingStockistStock) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
                 var products = snapshot.data!.docs.where((doc) {
                   final data = doc.data() as Map<String, dynamic>;
-                  final name = (data['name'] ?? '').toString().toLowerCase();
-                  final code = (data['code'] ?? '').toString().toLowerCase();
-                  final division = (data['division'] ?? '').toString();
+                  final name =
+                  (data['name'] ?? '').toString().toLowerCase();
+                  final code =
+                  (data['code'] ?? '').toString().toLowerCase();
+                  final division =
+                  (data['division'] ?? '').toString();
                   final matchesSearch = _searchQuery.isEmpty ||
                       name.contains(_searchQuery) ||
                       code.contains(_searchQuery);
-                  final matchesDivision =
-                      _filterDivision == 'All' || division == _filterDivision;
+                  final matchesDivision = _filterDivision == 'All' ||
+                      division == _filterDivision;
                   return matchesSearch && matchesDivision;
                 }).toList();
+
                 if (products.isEmpty) {
                   return Center(
                     child: Text('No products found',
                         style: TextStyle(
-                            color: Colors.grey.shade500, fontSize: 16)),
+                            color: Colors.grey.shade500,
+                            fontSize: 16)),
                   );
                 }
+
                 return ListView.builder(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   itemCount: products.length,
@@ -3062,19 +3588,29 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
                     final docId = products[index].id;
 
                     if (showingStockist) {
-                      final stockistQty = _stockistStockData[docId] ?? 0;
-                      final overriddenData = Map<String, dynamic>.from(data);
+                      final stockistQty =
+                          _stockistStockData[docId] ?? 0;
+                      final overriddenData =
+                      Map<String, dynamic>.from(data);
                       overriddenData['stock'] = stockistQty;
                       return _ProductCard(
+                        key: ValueKey('$docId-$stockistQty'), // force rebuild on qty change
                         data: overriddenData,
                         docId: docId,
                         isAdmin: true,
                         stockistLabel: _selectedStockistLabel,
-                        stockistUid: _selectedStockistView, // ADD THIS
+                        stockistUid: _selectedStockistView,
+                        onStockistStockUpdated: _onStockistStockUpdated, // ← callback
                       );
                     }
 
-                    return _ProductCard(data: data, docId: docId, isAdmin: true);
+                    // Overall view: normal product-level stock, no stockist context
+                    return _ProductCard(
+                      key: ValueKey(docId),
+                      data: data,
+                      docId: docId,
+                      isAdmin: true,
+                    );
                   },
                 );
               },
@@ -3090,28 +3626,44 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
       children: [
         Text(value,
             style: TextStyle(
-                fontSize: 20, fontWeight: FontWeight.bold, color: color)),
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: color)),
         Text(label,
-            style: const TextStyle(fontSize: 11, color: Colors.grey)),
+            style:
+            const TextStyle(fontSize: 11, color: Colors.grey)),
       ],
     );
   }
 }
 
-class _ProductCard extends StatelessWidget {
+// ─────────────────────────────────────────
+// PRODUCT CARD
+// ─────────────────────────────────────────
+class _ProductCard extends StatefulWidget {
   final Map<String, dynamic> data;
   final String docId;
   final bool isAdmin;
   final String? stockistLabel;
-  final String? stockistUid; // ADD THIS
+  final String? stockistUid;
+  final void Function(String productId, int newQty)? onStockistStockUpdated;
 
   const _ProductCard({
+    super.key,
     required this.data,
     required this.docId,
     required this.isAdmin,
     this.stockistLabel,
     this.stockistUid,
+    this.onStockistStockUpdated,
   });
+
+  @override
+  State<_ProductCard> createState() => _ProductCardState();
+}
+
+class _ProductCardState extends State<_ProductCard> {
+  bool _menuBusy = false; // prevent double popup actions
 
   Color _divisionColor(String division) {
     switch (division) {
@@ -3126,10 +3678,10 @@ class _ProductCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final division = data['division'] ?? 'General';
+    final division = widget.data['division'] ?? 'General';
     final color = _divisionColor(division);
-    final stock = data['stock'] ?? 0;
-    final minStock = data['minStock'] ?? 10;
+    final stock = (widget.data['stock'] as num?)?.toInt() ?? 0;
+    final minStock = (widget.data['minStock'] as num?)?.toInt() ?? 10;
     final isOutOfStock = stock == 0;
     final isLowStock = stock > 0 && stock <= minStock;
 
@@ -3145,7 +3697,8 @@ class _ProductCard extends StatelessWidget {
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape:
+      RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
@@ -3167,66 +3720,96 @@ class _ProductCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(data['name'] ?? 'Unknown',
+                      Text(widget.data['name'] ?? 'Unknown',
                           style: const TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 15)),
-                      Text('Code: ${data['code'] ?? 'N/A'}',
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15)),
+                      Text('Code: ${widget.data['code'] ?? 'N/A'}',
                           style: TextStyle(
-                              color: Colors.grey.shade500, fontSize: 12)),
+                              color: Colors.grey.shade500,
+                              fontSize: 12)),
                     ],
                   ),
                 ),
-                if (isAdmin)
-                  PopupMenuButton(
+                if (widget.isAdmin)
+                  _menuBusy
+                      ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2))
+                      : PopupMenuButton(
                     icon: const Icon(Icons.more_vert),
                     itemBuilder: (_) => [
                       const PopupMenuItem(
-                          value: 'stock', child: Text('Update Stock')),
+                          value: 'stock',
+                          child: Text('Update Stock')),
+                      const PopupMenuItem(
+                          value: 'edit',
+                          child: Text('Edit Product')),
                       const PopupMenuItem(
                           value: 'delete',
                           child: Text('Delete',
-                              style: TextStyle(color: Colors.red))),
+                              style: TextStyle(
+                                  color: Colors.red))),
                     ],
                     onSelected: (value) async {
+                      if (_menuBusy) return;
                       if (value == 'edit') {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (_) => AddProductScreen(
-                                existingData: data, docId: docId),
+                                existingData: widget.data,
+                                docId: widget.docId),
                           ),
                         );
                       } else if (value == 'stock') {
-                        if (stockistUid != null) {
-                          _showUpdateStockistStockDialog(context, docId, stock, stockistUid!);
+                        if (widget.stockistUid != null) {
+                          _showUpdateStockistStockDialog(
+                              context,
+                              widget.docId,
+                              stock,
+                              widget.stockistUid!);
                         } else {
-                          _showUpdateStockDialog(context, docId, stock);
+                          _showUpdateStockDialog(
+                              context, widget.docId, stock);
                         }
                       } else if (value == 'delete') {
                         final confirm = await showDialog<bool>(
                           context: context,
                           builder: (_) => AlertDialog(
-                            title: const Text('Delete Product'),
-                            content: Text('Delete ${data['name']}?'),
+                            title:
+                            const Text('Delete Product'),
+                            content: Text(
+                                'Delete ${widget.data['name']}?'),
                             actions: [
                               TextButton(
-                                  onPressed: () =>
-                                      Navigator.pop(context, false),
-                                  child: const Text('Cancel')),
+                                  onPressed: () => Navigator.pop(
+                                      context, false),
+                                  child:
+                                  const Text('Cancel')),
                               TextButton(
-                                  onPressed: () =>
-                                      Navigator.pop(context, true),
+                                  onPressed: () => Navigator.pop(
+                                      context, true),
                                   child: const Text('Delete',
-                                      style:
-                                      TextStyle(color: Colors.red))),
+                                      style: TextStyle(
+                                          color: Colors.red))),
                             ],
                           ),
                         );
-                        if (confirm == true) {
-                          await _db
-                              .collection('products')
-                              .doc(docId)
-                              .delete();
+                        if (confirm == true && mounted) {
+                          setState(() => _menuBusy = true);
+                          try {
+                            await _db
+                                .collection('products')
+                                .doc(widget.docId)
+                                .delete();
+                          } finally {
+                            if (mounted)
+                              setState(() =>
+                              _menuBusy = false);
+                          }
                         }
                       }
                     },
@@ -3239,8 +3822,8 @@ class _ProductCard extends StatelessWidget {
             Row(
               children: [
                 Container(
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
                     color: color.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(20),
@@ -3253,8 +3836,8 @@ class _ProductCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Container(
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
                     color: stockColor.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(20),
@@ -3274,11 +3857,13 @@ class _ProductCard extends StatelessWidget {
                             fontWeight: FontWeight.bold,
                             color: stockColor,
                             fontSize: 14)),
-                    Text('₹${data['price'] ?? '0'} | ${data['packSize'] ?? 'N/A'}',
+                    Text(
+                        '₹${widget.data['price'] ?? '0'} | ${widget.data['packSize'] ?? 'N/A'}',
                         style: TextStyle(
-                            color: Colors.grey.shade500, fontSize: 11)),
-                    if (stockistLabel != null)
-                      Text(stockistLabel!,
+                            color: Colors.grey.shade500,
+                            fontSize: 11)),
+                    if (widget.stockistLabel != null)
+                      Text(widget.stockistLabel!,
                           style: TextStyle(
                               color: Colors.teal.shade700,
                               fontSize: 10,
@@ -3295,427 +3880,173 @@ class _ProductCard extends StatelessWidget {
 
   void _showUpdateStockDialog(
       BuildContext context, String docId, int currentStock) {
-    final controller = TextEditingController(text: '$currentStock');
+    final controller =
+    TextEditingController(text: '$currentStock');
+    bool saving = false;
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Update Stock'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('Current stock: $currentStock units',
-                style: const TextStyle(color: Colors.grey)),
-            const SizedBox(height: 12),
-            TextField(
-              controller: controller,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'New Stock Quantity',
-                prefixIcon: Icon(Icons.inventory),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () async {
-              final newStock = int.tryParse(controller.text.trim()) ?? 0;
-              await _db
-                  .collection('products')
-                  .doc(docId)
-                  .update({'stock': newStock});
-              if (context.mounted) {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                      content: Text('✅ Stock updated!'),
-                      backgroundColor: Colors.green),
-                );
-              }
-            },
-            child: const Text('Update'),
-          ),
-        ],
-      ),
-    );
-  }
-  void _showUpdateStockistStockDialog(
-      BuildContext context, String docId, int currentStock, String stockistUid) {
-    final controller = TextEditingController(text: '$currentStock');
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Update Stockist Stock'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('Current stock: $currentStock units',
-                style: const TextStyle(color: Colors.grey)),
-            const SizedBox(height: 12),
-            TextField(
-              controller: controller,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'New Stock Quantity',
-                prefixIcon: Icon(Icons.inventory),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () async {
-              final newStock = int.tryParse(controller.text.trim()) ?? 0;
-              await _db.collection('stockist_stock').doc(stockistUid).set(
-                {docId: newStock},
-                SetOptions(merge: true),
-              );
-              if (context.mounted) {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                      content: Text('✅ Stockist stock updated!'),
-                      backgroundColor: Colors.green),
-                );
-              }
-            },
-            child: const Text('Update'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────
-// ADD / EDIT PRODUCT SCREEN
-// ─────────────────────────────────────────
-class AddProductScreen extends StatefulWidget {
-  final Map<String, dynamic>? existingData;
-  final String? docId;
-
-  const AddProductScreen({super.key, this.existingData, this.docId});
-
-  @override
-  State<AddProductScreen> createState() => _AddProductScreenState();
-}
-
-class _AddProductScreenState extends State<AddProductScreen> {
-  final _nameController = TextEditingController();
-  final _codeController = TextEditingController();
-  final _priceController = TextEditingController();
-  final _packSizeController = TextEditingController();
-  final _stockController = TextEditingController();
-  final _minStockController = TextEditingController();
-  final _descriptionController = TextEditingController();
-
-  String _selectedDivision = 'Ortho';
-  bool _isLoading = false;
-  String _errorMessage = '';
-  bool get _isEditing => widget.existingData != null;
-  final List<String> _divisions = ['Ortho', 'Gynec', 'General'];
-
-  @override
-  void initState() {
-    super.initState();
-    if (_isEditing) {
-      final d = widget.existingData!;
-      _nameController.text = d['name'] ?? '';
-      _codeController.text = d['code'] ?? '';
-      _priceController.text = '${d['price'] ?? ''}';
-      _packSizeController.text = d['packSize'] ?? '';
-      _stockController.text = '${d['stock'] ?? 0}';
-      _minStockController.text = '${d['minStock'] ?? 10}';
-      _descriptionController.text = d['description'] ?? '';
-      _selectedDivision = d['division'] ?? 'Ortho';
-    }
-  }
-
-  Future<void> _saveProduct() async {
-    final name = _nameController.text.trim();
-    final code = _codeController.text.trim();
-    final price = _priceController.text.trim();
-    final packSize = _packSizeController.text.trim();
-    final stock = int.tryParse(_stockController.text.trim()) ?? 0;
-    final minStock = int.tryParse(_minStockController.text.trim()) ?? 10;
-
-    if (name.isEmpty || code.isEmpty) {
-      setState(() => _errorMessage = 'Product name and code are required.');
-      return;
-    }
-
-    setState(() {
-      _isLoading = true;
-      _errorMessage = '';
-    });
-
-    try {
-      final data = {
-        'name': name,
-        'code': code,
-        'price': price,
-        'packSize': packSize,
-        'stock': stock,
-        'minStock': minStock,
-        'division': _selectedDivision,
-        'description': _descriptionController.text.trim(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
-
-      if (_isEditing) {
-        await _db.collection('products').doc(widget.docId).update(data);
-      } else {
-        data['createdAt'] = FieldValue.serverTimestamp();
-        data['createdBy'] = _auth.currentUser!.uid;
-        await _db.collection('products').add(data);
-      }
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content:
-            Text(_isEditing ? '✅ Product updated!' : '✅ Product added!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        Navigator.pop(context);
-      }
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-        _errorMessage = 'Failed to save. Please try again.';
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _codeController.dispose();
-    _priceController.dispose();
-    _packSizeController.dispose();
-    _stockController.dispose();
-    _minStockController.dispose();
-    _descriptionController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-          title: Text(_isEditing ? 'Edit Product' : 'Add Product')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Division',
-                style: TextStyle(fontWeight: FontWeight.w600)),
-            const SizedBox(height: 8),
-            Row(
-              children: _divisions.map((div) {
-                final isSelected = _selectedDivision == div;
-                Color color;
-                switch (div) {
-                  case 'Ortho':
-                    color = Colors.blue;
-                    break;
-                  case 'Gynec':
-                    color = Colors.pink;
-                    break;
-                  default:
-                    color = Colors.green;
-                }
-                return Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: GestureDetector(
-                      onTap: () => setState(() => _selectedDivision = div),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? color.withOpacity(0.15)
-                              : Colors.grey.shade100,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: isSelected ? color : Colors.grey.shade300,
-                            width: isSelected ? 2 : 1,
-                          ),
-                        ),
-                        child: Text(
-                          div,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: isSelected ? color : Colors.grey,
-                            fontWeight: isSelected
-                                ? FontWeight.bold
-                                : FontWeight.normal,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 16),
-            _field('Product Name *', _nameController, Icons.medication,
-                'e.g. CalciMax Tablet'),
-            _field('Product Code *', _codeController, Icons.qr_code,
-                'e.g. ARK-001'),
-            _field('Price (₹)', _priceController, Icons.currency_rupee,
-                'e.g. 150',
-                type: TextInputType.number),
-            _field('Pack Size', _packSizeController, Icons.inventory_2,
-                'e.g. 10x10, 30ml'),
-            _field('Description', _descriptionController, Icons.description,
-                'Optional description',
-                maxLines: 2),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.blue.shade200),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Row(
-                    children: [
-                      Icon(Icons.inventory, color: Colors.blue),
-                      SizedBox(width: 8),
-                      Text('Stock Settings',
-                          style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.blue)),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Current Stock',
-                                style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600)),
-                            const SizedBox(height: 4),
-                            TextField(
-                              controller: _stockController,
-                              keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(
-                                hintText: '0',
-                                prefixIcon: Icon(Icons.numbers, size: 18),
-                                contentPadding: EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 10),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Low Stock Alert',
-                                style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600)),
-                            const SizedBox(height: 4),
-                            TextField(
-                              controller: _minStockController,
-                              keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(
-                                hintText: '10',
-                                prefixIcon:
-                                Icon(Icons.warning_amber, size: 18),
-                                contentPadding: EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 10),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    '💡 When stock falls to or below this number, it will be marked as low stock.',
-                    style: TextStyle(fontSize: 11, color: Colors.blue),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-            if (_errorMessage.isNotEmpty)
-              Container(
-                padding: const EdgeInsets.all(10),
-                margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(
-                  color: Colors.red.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.red.shade200),
+      barrierDismissible: false,
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: const Text('Update Stock'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Current stock: $currentStock units',
+                  style: const TextStyle(color: Colors.grey)),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                keyboardType: TextInputType.number,
+                enabled: !saving,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'New Stock Quantity',
+                  prefixIcon: Icon(Icons.inventory),
                 ),
-                child: Text(_errorMessage,
-                    style:
-                    const TextStyle(color: Colors.red, fontSize: 13)),
               ),
-            _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : ElevatedButton.icon(
-              onPressed: _saveProduct,
-              icon: Icon(_isEditing ? Icons.save : Icons.add),
-              label: Text(
-                _isEditing ? 'Update Product' : 'Add Product',
-                style: const TextStyle(
-                    fontSize: 16, fontWeight: FontWeight.bold),
-              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed:
+                saving ? null : () => Navigator.pop(ctx),
+                child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: saving
+                  ? null
+                  : () async {
+                final newStock =
+                    int.tryParse(controller.text.trim()) ??
+                        0;
+                setD(() => saving = true);
+                try {
+                  await _db
+                      .collection('products')
+                      .doc(docId)
+                      .update({'stock': newStock});
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                          content: Text('✅ Stock updated!'),
+                          backgroundColor: Colors.green),
+                    );
+                  }
+                } catch (e) {
+                  setD(() => saving = false);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                          content:
+                          Text('❌ Failed. Try again.'),
+                          backgroundColor: Colors.red),
+                    );
+                  }
+                }
+              },
+              child: saving
+                  ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white))
+                  : const Text('Update'),
             ),
-            const SizedBox(height: 30),
           ],
         ),
       ),
     );
   }
 
-  Widget _field(
-      String label,
-      TextEditingController controller,
-      IconData icon,
-      String hint, {
-        TextInputType type = TextInputType.text,
-        int maxLines = 1,
-      }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
-        const SizedBox(height: 6),
-        TextField(
-          controller: controller,
-          keyboardType: type,
-          maxLines: maxLines,
-          decoration:
-          InputDecoration(hintText: hint, prefixIcon: Icon(icon)),
+  void _showUpdateStockistStockDialog(BuildContext context,
+      String docId, int currentStock, String stockistUid) {
+    final controller =
+    TextEditingController(text: '$currentStock');
+    bool saving = false;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: const Text('Update Stockist Stock'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Current stock: $currentStock units',
+                  style: const TextStyle(color: Colors.grey)),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                keyboardType: TextInputType.number,
+                enabled: !saving,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'New Stock Quantity',
+                  prefixIcon: Icon(Icons.inventory),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed:
+                saving ? null : () => Navigator.pop(ctx),
+                child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: saving
+                  ? null
+                  : () async {
+                final newStock =
+                    int.tryParse(controller.text.trim()) ??
+                        0;
+                setD(() => saving = true);
+                try {
+                  await _db
+                      .collection('stockist_stock')
+                      .doc(stockistUid)
+                      .set(
+                    {docId: newStock},
+                    SetOptions(merge: true),
+                  );
+                  // ← Immediately update parent list without re-fetching
+                  widget.onStockistStockUpdated
+                      ?.call(docId, newStock);
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                          content: Text(
+                              '✅ Stockist stock updated!'),
+                          backgroundColor: Colors.green),
+                    );
+                  }
+                } catch (e) {
+                  setD(() => saving = false);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                          content:
+                          Text('❌ Failed. Try again.'),
+                          backgroundColor: Colors.red),
+                    );
+                  }
+                }
+              },
+              child: saving
+                  ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white))
+                  : const Text('Update'),
+            ),
+          ],
         ),
-        const SizedBox(height: 14),
-      ],
+      ),
     );
   }
 }
-
 // ─────────────────────────────────────────
 // ADMIN PROFILE SCREEN
 // ─────────────────────────────────────────
@@ -3793,6 +4124,10 @@ class AdminProfileScreen extends StatelessWidget {
             _menuItem(context, Icons.lock_outline, 'Change Password', Colors.blueGrey, () {
               Navigator.push(context, MaterialPageRoute(
                   builder: (_) => const AdminChangePasswordScreen()));
+            }),
+            _menuItem(context, Icons.route, 'MR Visit History', Colors.indigo, () {
+              Navigator.push(context, MaterialPageRoute(
+                  builder: (_) => const AdminMrVisitHistoryScreen()));
             }),
             const SizedBox(height: 10),
             Card(
@@ -3906,9 +4241,7 @@ class _AdminStockistScreenState extends State<AdminStockistScreen> {
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: _db
-                  .collection('stockists')
-                  .orderBy('createdAt', descending: true)
-                  .snapshots(),
+                  .collection('users').where('role', isEqualTo: 'stockist').orderBy('createdAt', descending: true).snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
@@ -4001,7 +4334,7 @@ class _StockistCard extends StatelessWidget {
                     color: Colors.brown.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Icon(Icons.store, color: Colors.brown),
+                  child: const Icon(Icons.store, color: Colors.brown),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -4061,10 +4394,7 @@ class _StockistCard extends StatelessWidget {
                         ),
                       );
                       if (confirm == true) {
-                        await _db
-                            .collection('stockists')
-                            .doc(docId)
-                            .delete();
+                        await _db.collection('users').doc(docId).delete();
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
@@ -4103,7 +4433,7 @@ class _StockistCard extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────
-// ADD / EDIT STOCKIST SCREEN (FIXED)
+// ADD / EDIT STOCKIST SCREEN
 // ─────────────────────────────────────────
 class AddStockistScreen extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -4127,7 +4457,7 @@ class _AddStockistScreenState extends State<AddStockistScreen> {
   bool _isLoading       = false;
   bool _obscurePassword = true;
   String _errorMessage  = '';
-  bool get _isEditing   => widget.existingData != null;
+  bool get _isEditing  => widget.existingData != null;
 
   @override
   void initState() {
@@ -4169,8 +4499,7 @@ class _AddStockistScreenState extends State<AddStockistScreen> {
 
     try {
       if (_isEditing) {
-        // Just update the Firestore doc — no auth changes
-        await _db.collection('stockists').doc(widget.docId).update({
+        await _db.collection('users').doc(widget.docId).update({
           'name':      name,
           'phone':     phone,
           'email':     email,
@@ -4179,17 +4508,7 @@ class _AddStockistScreenState extends State<AddStockistScreen> {
           'pinCode':   _pinCodeController.text.trim(),
           'updatedAt': FieldValue.serverTimestamp(),
         });
-        // Also update the users collection if uid stored
-        final uid = widget.existingData!['uid']?.toString() ?? '';
-        if (uid.isNotEmpty) {
-          await _db.collection('users').doc(uid).update({
-            'name':  name,
-            'phone': phone,
-            'city':  city,
-          });
-        }
       } else {
-        // Create Firebase Auth account using secondary app
         final currentAdmin = _auth.currentUser!;
         FirebaseApp secondaryApp;
         try {
@@ -4207,40 +4526,24 @@ class _AddStockistScreenState extends State<AddStockistScreen> {
         );
         final newUid = cred.user!.uid;
 
-        // Save to users collection (for role-based routing)
         await _db.collection('users').doc(newUid).set({
           'name':      name,
           'email':     email,
           'phone':     phone,
           'city':      city,
+          'address':   _addressController.text.trim(),
+          'pinCode':   _pinCodeController.text.trim(),
           'role':      'stockist',
           'isActive':  true,
           'createdAt': FieldValue.serverTimestamp(),
           'createdBy': currentAdmin.uid,
         });
 
-        // Save to stockists collection with uid linked
-        await _db.collection('stockists').add({
-          'uid':       newUid,
-          'name':      name,
-          'phone':     phone,
-          'email':     email,
-          'address':   _addressController.text.trim(),
-          'city':      city,
-          'pinCode':   _pinCodeController.text.trim(),
-          'isActive':  true,
-          'createdAt': FieldValue.serverTimestamp(),
-          'createdBy': currentAdmin.uid,
-        });
-
-        // 🔥 IMPORTANT: Create stock document for this stockist
-        // Get all products and initialize with zero stock
         final productsSnapshot = await _db.collection('products').get();
         Map<String, int> stockData = {};
         for (var doc in productsSnapshot.docs) {
-          stockData[doc.id] = 0; // default stock for each product
+          stockData[doc.id] = 0;
         }
-        // Create the stock document in stockist_stock collection
         await _db.collection('stockist_stock').doc(newUid).set(stockData);
 
         await secondaryAuth.signOut();
@@ -4262,7 +4565,6 @@ class _AddStockistScreenState extends State<AddStockistScreen> {
             : 'Failed: ${e.message}';
       });
     } catch (e) {
-      print('Error creating stockist: $e');
       setState(() {
         _isLoading = false;
         _errorMessage = 'Failed to save. Please try again.';
@@ -4405,7 +4707,6 @@ class _AddStockistScreenState extends State<AddStockistScreen> {
     );
   }
 }
-
 
 // ─────────────────────────────────────────
 // ADMIN ATTENDANCE SCREEN
@@ -4565,7 +4866,8 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
 }
 
 // ─────────────────────────────────────────
-// ADMIN LEAVE APPROVALS SCREEN
+// ADMIN LEAVE APPROVALS SCREEN — FIXED
+// Approve/Reject buttons now use StatefulWidget to prevent double-tap
 // ─────────────────────────────────────────
 class AdminLeaveApprovalsScreen extends StatelessWidget {
   const AdminLeaveApprovalsScreen({super.key});
@@ -4651,102 +4953,184 @@ class _LeaveList extends StatelessWidget {
             final data   = doc.data() as Map<String, dynamic>;
             final status = data['status'] ?? 'pending';
             final color  = statusColor(status);
-            return Card(
-              margin: const EdgeInsets.only(bottom: 10),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Row(children: [
-                    CircleAvatar(
-                      backgroundColor: color.withOpacity(0.15),
-                      child: Icon(Icons.event_busy, color: color),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(data['mrName'] ?? 'Unknown MR',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                      Text('${data['fromDate']} → ${data['toDate']}  •  ${data['days']} day(s)',
-                          style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
-                      Text(data['reason'] ?? '',
-                          style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
-                          maxLines: 2, overflow: TextOverflow.ellipsis),
-                    ])),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                          color: color.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(20)),
-                      child: Text(status.toUpperCase(),
-                          style: TextStyle(color: color, fontSize: 11,
-                              fontWeight: FontWeight.bold)),
-                    ),
-                  ]),
-                  if (status == 'pending') ...[
-                    const SizedBox(height: 12),
-                    Row(children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            await _db.collection('leave_requests')
-                                .doc(doc.id).update({'status': 'rejected'});
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                                  content: Text('Leave rejected.'),
-                                  backgroundColor: Colors.red));
-                            }
-                          },
-                          icon: const Icon(Icons.close, size: 16),
-                          label: const Text('Reject'),
-                          style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.red,
-                              side: const BorderSide(color: Colors.red)),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () async {
-                            await _db.collection('leave_requests')
-                                .doc(doc.id).update({'status': 'approved'});
-                            final from = DateTime.parse(data['fromDate']);
-                            final to   = DateTime.parse(data['toDate']);
-                            final mrId = data['mrId'] ?? '';
-                            if (mrId.isNotEmpty) {
-                              for (var d = from;
-                              !d.isAfter(to);
-                              d = d.add(const Duration(days: 1))) {
-                                final dateKey =
-                                    '${d.year}-${d.month.toString().padLeft(2,'0')}-${d.day.toString().padLeft(2,'0')}';
-                                await _db.collection('attendance')
-                                    .doc('${mrId}_$dateKey')
-                                    .set({
-                                  'mrId':      mrId,
-                                  'date':      dateKey,
-                                  'status':    'leave',
-                                  'updatedAt': FieldValue.serverTimestamp(),
-                                }, SetOptions(merge: true));
-                              }
-                            }
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                                  content: Text('Leave approved!'),
-                                  backgroundColor: Colors.green));
-                            }
-                          },
-                          icon: const Icon(Icons.check, size: 16),
-                          label: const Text('Approve'),
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                        ),
-                      ),
-                    ]),
-                  ],
-                ]),
-              ),
+            return _LeaveCard(
+              doc: doc,
+              data: data,
+              status: status,
+              color: color,
             );
           },
         );
       },
+    );
+  }
+}
+
+// Stateful leave card to prevent double-tap on Approve/Reject
+class _LeaveCard extends StatefulWidget {
+  final QueryDocumentSnapshot doc;
+  final Map<String, dynamic> data;
+  final String status;
+  final Color color;
+
+  const _LeaveCard({
+    required this.doc,
+    required this.data,
+    required this.status,
+    required this.color,
+  });
+
+  @override
+  State<_LeaveCard> createState() => _LeaveCardState();
+}
+
+class _LeaveCardState extends State<_LeaveCard> {
+  bool _isProcessing = false;
+
+  Future<void> _runAction(Future<void> Function() action) async {
+    if (_isProcessing) return;
+    setState(() => _isProcessing = true);
+    try {
+      await action();
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            CircleAvatar(
+              backgroundColor: widget.color.withOpacity(0.15),
+              child: Icon(Icons.event_busy, color: widget.color),
+            ),
+            const SizedBox(width: 12),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(widget.data['mrName'] ?? 'Unknown MR',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+              Text('${widget.data['fromDate']} → ${widget.data['toDate']}  •  ${widget.data['days']} day(s)',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+              Text(widget.data['reason'] ?? '',
+                  style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                  maxLines: 2, overflow: TextOverflow.ellipsis),
+            ])),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                  color: widget.color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(20)),
+              child: Text(widget.status.toUpperCase(),
+                  style: TextStyle(color: widget.color, fontSize: 11,
+                      fontWeight: FontWeight.bold)),
+            ),
+          ]),
+          if (widget.status == 'pending') ...[
+            const SizedBox(height: 12),
+            Row(children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _isProcessing ? null : () => _runAction(() async {
+                    await _db.collection('leave_requests')
+                        .doc(widget.doc.id).update({'status': 'rejected'});
+                    final mrId = widget.data['mrId'] ?? '';
+                    if (mrId.isNotEmpty) {
+                      // Fix #6: Notify MR of rejection
+                      await _db.collection('notifications').add({
+                        'mrId':      mrId,
+                        'title':     'Leave Rejected ❌',
+                        'body':      'Your leave request from ${widget.data['fromDate']} to ${widget.data['toDate']} was not approved.',
+                        'type':      'leave_rejected',
+                        'isRead':    false,
+                        'createdAt': FieldValue.serverTimestamp(),
+                      });
+                    }
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                          content: Text('Leave rejected.'),
+                          backgroundColor: Colors.red));
+                    }
+                  }),
+                  icon: _isProcessing
+                      ? const SizedBox(width: 14, height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.red))
+                      : const Icon(Icons.close, size: 16),
+                  label: const Text('Reject'),
+                  style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.red,
+                      side: const BorderSide(color: Colors.red)),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _isProcessing ? null : () => _runAction(() async {
+                    await _db.collection('leave_requests')
+                        .doc(widget.doc.id).update({'status': 'approved'});
+                    final from = DateTime.parse(widget.data['fromDate']);
+                    final to   = DateTime.parse(widget.data['toDate']);
+                    final mrId = widget.data['mrId'] ?? '';
+                    if (mrId.isNotEmpty) {
+                      for (var d = from;
+                      !d.isAfter(to);
+                      d = d.add(const Duration(days: 1))) {
+                        // Fix #4: Skip Sundays — don't mark non-working days as leave
+                        if (d.weekday == DateTime.sunday) continue;
+
+                        final dateKey =
+                            '${d.year}-${d.month.toString().padLeft(2,'0')}-${d.day.toString().padLeft(2,'0')}';
+
+                        // Fix #2: Don't overwrite existing 'present' attendance
+                        final existingDoc = await _db.collection('attendance')
+                            .doc('${mrId}_$dateKey').get();
+                        if (existingDoc.exists) {
+                          final existingStatus =
+                          (existingDoc.data() as Map<String, dynamic>?)?['status'];
+                          if (existingStatus == 'present') continue; // MR already worked this day
+                        }
+
+                        await _db.collection('attendance')
+                            .doc('${mrId}_$dateKey')
+                            .set({
+                          'mrId':      mrId,
+                          'date':      dateKey,
+                          'status':    'leave',
+                          'updatedAt': FieldValue.serverTimestamp(),
+                        }, SetOptions(merge: true));
+                      }
+                    }
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                          content: Text('Leave approved!'),
+                          backgroundColor: Colors.green));
+                    }
+                    // Fix #6: Notify MR of approval
+                    await _db.collection('notifications').add({
+                      'mrId':      mrId,
+                      'title':     'Leave Approved ✅',
+                      'body':      'Your leave from ${widget.data['fromDate']} to ${widget.data['toDate']} has been approved.',
+                      'type':      'leave_approved',
+                      'isRead':    false,
+                      'createdAt': FieldValue.serverTimestamp(),
+                    });
+                  }),
+                  icon: _isProcessing
+                      ? const SizedBox(width: 14, height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Icon(Icons.check, size: 16),
+                  label: const Text('Approve'),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                ),
+              ),
+            ]),
+          ],
+        ]),
+      ),
     );
   }
 }
@@ -4850,6 +5234,269 @@ class AdminAllowanceScreen extends StatelessWidget {
     );
   }
 }
+
+
+// ─────────────────────────────────────────
+// ADD / EDIT PRODUCT SCREEN
+// ─────────────────────────────────────────
+class AddProductScreen extends StatefulWidget {
+  final Map<String, dynamic>? existingData;
+  final String? docId;
+
+  const AddProductScreen({super.key, this.existingData, this.docId});
+
+  @override
+  State<AddProductScreen> createState() => _AddProductScreenState();
+}
+
+class _AddProductScreenState extends State<AddProductScreen> {
+  final _nameController        = TextEditingController();
+  final _codeController        = TextEditingController();
+  final _priceController       = TextEditingController();
+  final _packSizeController    = TextEditingController();
+  final _stockController       = TextEditingController();
+  final _minStockController    = TextEditingController();
+  final _descriptionController = TextEditingController();
+
+  String _selectedDivision = 'Ortho';
+  bool _isLoading = false;
+  String _errorMessage = '';
+  bool get _isEditing => widget.existingData != null;
+  final List<String> _divisions = ['Ortho', 'Gynec', 'General'];
+
+  @override
+  void initState() {
+    super.initState();
+    if (_isEditing) {
+      final d = widget.existingData!;
+      _nameController.text        = d['name']        ?? '';
+      _codeController.text        = d['code']        ?? '';
+      _priceController.text       = '${d['price']    ?? ''}';
+      _packSizeController.text    = d['packSize']     ?? '';
+      _stockController.text       = '${d['stock']    ?? 0}';
+      _minStockController.text    = '${d['minStock'] ?? 10}';
+      _descriptionController.text = d['description'] ?? '';
+      _selectedDivision           = d['division']    ?? 'Ortho';
+    }
+  }
+
+  Future<void> _saveProduct() async {
+    final name     = _nameController.text.trim();
+    final code     = _codeController.text.trim();
+    final price    = _priceController.text.trim();
+    final packSize = _packSizeController.text.trim();
+    final stock    = int.tryParse(_stockController.text.trim())    ?? 0;
+    final minStock = int.tryParse(_minStockController.text.trim()) ?? 10;
+
+    if (name.isEmpty || code.isEmpty) {
+      setState(() => _errorMessage = 'Product name and code are required.');
+      return;
+    }
+
+    setState(() { _isLoading = true; _errorMessage = ''; });
+
+    try {
+      final data = {
+        'name':        name,
+        'code':        code,
+        'price':       price,
+        'packSize':    packSize,
+        'stock':       stock,
+        'minStock':    minStock,
+        'division':    _selectedDivision,
+        'description': _descriptionController.text.trim(),
+        'updatedAt':   FieldValue.serverTimestamp(),
+      };
+
+      if (_isEditing) {
+        await _db.collection('products').doc(widget.docId).update(data);
+      } else {
+        data['createdAt'] = FieldValue.serverTimestamp();
+        data['createdBy'] = _auth.currentUser!.uid;
+        await _db.collection('products').add(data);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(_isEditing ? '✅ Product updated!' : '✅ Product added!'),
+          backgroundColor: Colors.green,
+        ));
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      setState(() { _isLoading = false; _errorMessage = 'Failed to save. Please try again.'; });
+    }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _codeController.dispose();
+    _priceController.dispose();
+    _packSizeController.dispose();
+    _stockController.dispose();
+    _minStockController.dispose();
+    _descriptionController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(_isEditing ? 'Edit Product' : 'Add Product')),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Division', style: TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            Row(
+              children: _divisions.map((div) {
+                final isSelected = _selectedDivision == div;
+                Color color;
+                switch (div) {
+                  case 'Ortho': color = Colors.blue; break;
+                  case 'Gynec': color = Colors.pink; break;
+                  default:      color = Colors.green;
+                }
+                return Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: GestureDetector(
+                      onTap: () => setState(() => _selectedDivision = div),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: isSelected ? color.withOpacity(0.15) : Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: isSelected ? color : Colors.grey.shade300,
+                            width: isSelected ? 2 : 1,
+                          ),
+                        ),
+                        child: Text(div,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: isSelected ? color : Colors.grey,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 16),
+            _field('Product Name *', _nameController, Icons.medication,    'e.g. CalciMax Tablet'),
+            _field('Product Code *', _codeController, Icons.qr_code,       'e.g. ARK-001'),
+            _field('Price (₹)',      _priceController, Icons.currency_rupee,'e.g. 150', type: TextInputType.number),
+            _field('Pack Size',      _packSizeController, Icons.inventory_2,'e.g. 10x10, 30ml'),
+            _field('Description',   _descriptionController, Icons.description, 'Optional', maxLines: 2),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Row(children: [
+                  Icon(Icons.inventory, color: Colors.blue),
+                  SizedBox(width: 8),
+                  Text('Stock Settings',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+                ]),
+                const SizedBox(height: 12),
+                Row(children: [
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Text('Current Stock',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 4),
+                    TextField(
+                      controller: _stockController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        hintText: '0',
+                        prefixIcon: Icon(Icons.numbers, size: 18),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                      ),
+                    ),
+                  ])),
+                  const SizedBox(width: 12),
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Text('Low Stock Alert',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 4),
+                    TextField(
+                      controller: _minStockController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        hintText: '10',
+                        prefixIcon: Icon(Icons.warning_amber, size: 18),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                      ),
+                    ),
+                  ])),
+                ]),
+                const SizedBox(height: 8),
+                const Text(
+                  '💡 When stock falls to or below this number, it will be marked as low stock.',
+                  style: TextStyle(fontSize: 11, color: Colors.blue),
+                ),
+              ]),
+            ),
+            const SizedBox(height: 20),
+            if (_errorMessage.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.all(10),
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.shade200),
+                ),
+                child: Text(_errorMessage,
+                    style: const TextStyle(color: Colors.red, fontSize: 13)),
+              ),
+            _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : ElevatedButton.icon(
+              onPressed: _saveProduct,
+              icon: Icon(_isEditing ? Icons.save : Icons.add),
+              label: Text(
+                _isEditing ? 'Update Product' : 'Add Product',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+            const SizedBox(height: 30),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _field(String label, TextEditingController controller,
+      IconData icon, String hint,
+      {TextInputType type = TextInputType.text, int maxLines = 1}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 6),
+        TextField(
+          controller: controller,
+          keyboardType: type,
+          maxLines: maxLines,
+          decoration: InputDecoration(hintText: hint, prefixIcon: Icon(icon)),
+        ),
+        const SizedBox(height: 14),
+      ],
+    );
+  }
+}
+
 
 // ─────────────────────────────────────────
 // ADMIN CHANGE PASSWORD SCREEN
@@ -4966,6 +5613,7 @@ class _AdminChangePasswordScreenState
         ),
       );
 }
+
 // ─────────────────────────────────────────
 // ADMIN STOCK REPORTS SCREEN
 // ─────────────────────────────────────────
@@ -5119,4 +5767,5 @@ class AdminStockReportsScreen extends StatelessWidget {
       ),
     );
   }
+
 }

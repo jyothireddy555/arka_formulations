@@ -281,9 +281,8 @@ class _LoginScreenState extends State<LoginScreen> {
         email: email,
         password: password,
       );
-      await NotificationService.instance.onUserLogin(); // ← ADD THIS
-      // AuthWrapper's StreamBuilder will automatically
-      // detect the login and redirect to correct screen
+      // RoleRedirector._ensureNotificationsInitialised() handles onUserLogin()
+      // for both fresh login and auto-login on app restart — do NOT call it here.
     } on FirebaseAuthException catch (e) {
       setState(() {
         _isLoading = false;
