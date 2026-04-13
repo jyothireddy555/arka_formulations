@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'auth.dart';
 import 'notification_service.dart';
+import 'package:flutter/services.dart'; // ensure this is at top
 
 // ─────────────────────────────────────────
 // SHARED SAFE STOCK LOADER HELPER
@@ -59,20 +60,32 @@ class _StockistMainScreenState extends State<StockistMainScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: _screens[_currentIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (i) => setState(() => _currentIndex = i),
-        type: BottomNavigationBarType.fixed,
-        selectedItemColor: const Color(0xFF1565C0),
-        unselectedItemColor: Colors.grey,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: 'Dashboard'),
-          BottomNavigationBarItem(icon: Icon(Icons.receipt_long), label: 'Orders'),
-          BottomNavigationBarItem(icon: Icon(Icons.inventory_2), label: 'Stock'),
-          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
-        ],
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) async {
+        if (didPop) return;
+
+        if (_currentIndex != 0) {
+          setState(() => _currentIndex = 0);
+        } else {
+          SystemNavigator.pop();
+        }
+      },
+      child: Scaffold(
+        body: _screens[_currentIndex],
+        bottomNavigationBar: BottomNavigationBar(
+          currentIndex: _currentIndex,
+          onTap: (i) => setState(() => _currentIndex = i),
+          type: BottomNavigationBarType.fixed,
+          selectedItemColor: const Color(0xFF1565C0),
+          unselectedItemColor: Colors.grey,
+          items: const [
+            BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: 'Dashboard'),
+            BottomNavigationBarItem(icon: Icon(Icons.receipt_long), label: 'Orders'),
+            BottomNavigationBarItem(icon: Icon(Icons.inventory_2), label: 'Stock'),
+            BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
+          ],
+        ),
       ),
     );
   }
@@ -722,7 +735,7 @@ class _StockistOrderDetailDialogState extends State<_StockistOrderDetailDialog> 
                           title: const Row(children: [
                             Icon(Icons.warning_amber, color: Colors.orange),
                             SizedBox(width: 8),
-                            Text('Insufficient Stock'),
+                            Flexible(child: Text('Insufficient Stock')),
                           ]),
                           content: Column(
                             mainAxisSize: MainAxisSize.min,
@@ -1011,14 +1024,6 @@ class _StockistStockScreenState extends State<StockistStockScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const StockistAddProductScreen()),
-        ).then((_) => _loadStockistStock()),
-        icon: const Icon(Icons.add),
-        label: const Text('Add Stock'),
-      ),
       body: Column(children: [
         Padding(
           padding: const EdgeInsets.all(12),
@@ -1245,7 +1250,7 @@ class _StockistProductCard extends StatelessWidget {
         title: const Row(children: [
           Icon(Icons.notifications_active, color: Colors.orange),
           SizedBox(width: 8),
-          Text('Low Stock Reminder'),
+          Flexible(child: Text('Low Stock Reminder')),
         ]),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
           Text(

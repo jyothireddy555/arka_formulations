@@ -4,7 +4,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 import 'auth.dart';
 import 'notification_service.dart';
-
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 String? _activeCheckInDoctorId;
 String? _activeCheckInDoctorName;
 DateTime? _activeCheckInTime;
@@ -85,22 +86,53 @@ class _MrMainScreenState extends State<MrMainScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: _screens[_currentIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) => setState(() => _currentIndex = index),
-        type: BottomNavigationBarType.fixed,
-        selectedItemColor: const Color(0xFF1565C0),
-        unselectedItemColor: Colors.grey,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.dashboard),        label: 'Dashboard'),
-          BottomNavigationBarItem(icon: Icon(Icons.people),           label: 'Doctors'),
-          BottomNavigationBarItem(icon: Icon(Icons.medication),       label: 'Products'),
-          BottomNavigationBarItem(icon: Icon(Icons.shopping_cart),    label: 'Orders'),
-          BottomNavigationBarItem(icon: Icon(Icons.assignment),       label: 'Reports'),
-          BottomNavigationBarItem(icon: Icon(Icons.person),           label: 'Profile'),
-        ],
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        if (_currentIndex != 0) {
+          setState(() => _currentIndex = 0);
+          return;
+        }
+        final shouldExit = await showDialog<bool>(
+          context: context,
+          builder: (_) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Row(children: [
+              Icon(Icons.exit_to_app, color: Colors.red),
+              SizedBox(width: 8),
+              Text('Exit App'),
+            ]),
+            content: const Text('Are you sure you want to exit?'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Exit', style: TextStyle(color: Colors.red)),
+              ),
+            ],
+          ),
+        );
+        if (shouldExit == true && context.mounted) {
+          SystemNavigator.pop();        }
+      },
+      child: Scaffold(
+        body: _screens[_currentIndex],
+        bottomNavigationBar: BottomNavigationBar(
+          currentIndex: _currentIndex,
+          onTap: (index) => setState(() => _currentIndex = index),
+          type: BottomNavigationBarType.fixed,
+          selectedItemColor: const Color(0xFF1565C0),
+          unselectedItemColor: Colors.grey,
+          items: const [
+            BottomNavigationBarItem(icon: Icon(Icons.dashboard),        label: 'Dashboard'),
+            BottomNavigationBarItem(icon: Icon(Icons.people),           label: 'Doctors'),
+            BottomNavigationBarItem(icon: Icon(Icons.medication),       label: 'Products'),
+            BottomNavigationBarItem(icon: Icon(Icons.shopping_cart),    label: 'Orders'),
+            BottomNavigationBarItem(icon: Icon(Icons.assignment),       label: 'Reports'),
+            BottomNavigationBarItem(icon: Icon(Icons.person),           label: 'Profile'),
+          ],
+        ),
       ),
     );
   }
@@ -474,6 +506,10 @@ class _MrAddDoctorScreenState extends State<MrAddDoctorScreen> {
   final _hospitalController = TextEditingController();
   final _areaController = TextEditingController();
   final _addressController = TextEditingController();
+  final _contactController    = TextEditingController();
+  final _licence20bController = TextEditingController();
+  final _licence21bController = TextEditingController();
+  final _gstController        = TextEditingController();
 
   String _selectedDivision = 'Ortho';
   double? _latitude;
@@ -554,6 +590,10 @@ class _MrAddDoctorScreenState extends State<MrAddDoctorScreen> {
         'hospital': hospital,
         'area': area,
         'address': _addressController.text.trim(),
+        'contact':    _contactController.text.trim(),
+        'licence20b': _licence20bController.text.trim(),
+        'licence21b': _licence21bController.text.trim(),
+        'gst':        _gstController.text.trim(),
         'division': _selectedDivision,
         'latitude': _latitude,
         'longitude': _longitude,
@@ -582,6 +622,10 @@ class _MrAddDoctorScreenState extends State<MrAddDoctorScreen> {
     _hospitalController.dispose();
     _areaController.dispose();
     _addressController.dispose();
+    _contactController.dispose();
+    _licence20bController.dispose();
+    _licence21bController.dispose();
+    _gstController.dispose();
     super.dispose();
   }
 
@@ -611,6 +655,67 @@ class _MrAddDoctorScreenState extends State<MrAddDoctorScreen> {
           const SizedBox(height: 14),
           _label('Full Address (Optional)'),
           TextField(controller: _addressController, maxLines: 2, decoration: const InputDecoration(hintText: 'Enter full address...', prefixIcon: Icon(Icons.location_on_outlined))),
+          const SizedBox(height: 14),
+          _label('Contact Number (Optional)'),
+          TextField(
+            controller: _contactController,
+            keyboardType: TextInputType.phone,
+            decoration: const InputDecoration(
+              hintText: 'e.g. 9876543210',
+              prefixIcon: Icon(Icons.phone_outlined),
+            ),
+          ),
+          const SizedBox(height: 14),
+          _label('Drug Licence (Optional)'),
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.blue.shade100),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('20B Licence No.',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: _licence20bController,
+                  decoration: const InputDecoration(
+                    hintText: 'e.g. DL-20B-XXXXX',
+                    prefixIcon: Icon(Icons.badge_outlined, size: 18),
+                    contentPadding:
+                    EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text('21B Licence No.',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: _licence21bController,
+                  decoration: const InputDecoration(
+                    hintText: 'e.g. DL-21B-XXXXX',
+                    prefixIcon: Icon(Icons.badge_outlined, size: 18),
+                    contentPadding:
+                    EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          _label('GST Number (Optional)'),
+          TextField(
+            controller: _gstController,
+            textCapitalization: TextCapitalization.characters,
+            decoration: const InputDecoration(
+              hintText: 'e.g. 29ABCDE1234F1Z5',
+              prefixIcon: Icon(Icons.receipt_long_outlined),
+            ),
+          ),
           const SizedBox(height: 14),
           _label('Division'),
           DropdownButtonFormField<String>(
@@ -710,11 +815,7 @@ class _MrDoctorsScreenState extends State<MrDoctorsScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MrAddDoctorScreen())),
-        icon: const Icon(Icons.add),
-        label: const Text('Add Doctor'),
-      ),
+
       body: Column(children: [
         Container(
           width: double.infinity,
@@ -794,7 +895,10 @@ class _MrDoctorsScreenState extends State<MrDoctorsScreen> {
                 final active = data['isActive'] as bool? ?? true;
                 final name   = (data['name'] ?? '').toString().toLowerCase();
                 final div    = (data['division'] ?? '').toString();
-                return active && (_search.isEmpty || name.contains(_search)) && (_filterDiv == 'All' || div == _filterDiv);
+                final hospital = (data['hospital'] ?? '').toString().toLowerCase();
+                return active &&
+                    (_search.isEmpty || name.contains(_search) || hospital.contains(_search)) &&
+                    (_filterDiv == 'All' || div == _filterDiv);
               }).toList();
               if (docs.isEmpty) return Center(child: Text('No doctors match your filter.', style: TextStyle(color: Colors.grey.shade500)));
               return ListView.builder(
@@ -887,8 +991,8 @@ class _MrDoctorCardState extends State<_MrDoctorCard> {
         return;
       }
       final distance = Geolocator.distanceBetween(pos.latitude, pos.longitude, docLat, docLng);
-      if (distance > 200) {
-        _showMsg('You are ${distance.toInt()} m away. Must be within 200 m.', Colors.red);
+      if (distance > 300) {
+        _showGpsOverrideOption(distance.toInt());
         return;
       }
       final uid = auth.currentUser!.uid;
@@ -979,6 +1083,128 @@ class _MrDoctorCardState extends State<_MrDoctorCard> {
     );
   }
 
+
+  void _showGpsOverrideOption(int distanceMeters) {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(children: [
+          Icon(Icons.gps_not_fixed, color: Colors.orange, size: 26),
+          SizedBox(width: 8),
+          Flexible(child: Text('GPS Signal Issue', style: TextStyle(fontSize: 17))),
+        ]),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(
+            'You appear to be $distanceMeters m away from this doctor\'s registered location.',
+            style: const TextStyle(fontSize: 13),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.orange.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.orange.shade200),
+            ),
+            child: const Text(
+              'If you are physically present at the clinic but GPS is showing wrong location, you can request an admin override to check in.',
+              style: TextStyle(fontSize: 12, color: Colors.orange),
+            ),
+          ),
+        ]),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+              _requestGpsOverride(distanceMeters);
+            },
+            icon: const Icon(Icons.admin_panel_settings, size: 16),
+            label: const Text('Request Override'),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _requestGpsOverride(int distanceMeters) async {
+    final uid = auth.currentUser!.uid;
+    final today = _dateKey(DateTime.now());
+
+    // Check if already checked in today with this doctor
+    final existing = await db
+        .collection('visits')
+        .where('mrId', isEqualTo: uid)
+        .where('doctorId', isEqualTo: widget.docId)
+        .where('date', isEqualTo: today)
+        .get();
+    if (existing.docs.isNotEmpty) {
+      _showMsg('Already checked in with this doctor today.', Colors.orange);
+      return;
+    }
+
+    // Check if a pending/approved request already exists today
+    final existingReq = await db
+        .collection('gps_override_requests')
+        .where('mrId', isEqualTo: uid)
+        .where('doctorId', isEqualTo: widget.docId)
+        .where('date', isEqualTo: today)
+        .get();
+    if (existingReq.docs.isNotEmpty) {
+      final st = existingReq.docs.first['status'];
+      if (st == 'pending') {
+        _showMsg('Override request already sent. Please wait for admin approval.', Colors.blue);
+      } else if (st == 'approved') {
+        _showMsg('Override already approved. Check your notifications.', Colors.green);
+      } else {
+        _showMsg('Previous override request was rejected by admin.', Colors.red);
+      }
+      return;
+    }
+
+    // Fetch MR name
+    final mrDoc = await db.collection('users').doc(uid).get();
+    final mrName = (mrDoc.data() as Map<String, dynamic>?)?['name'] ?? 'MR';
+
+    // Create override request
+    await db.collection('gps_override_requests').add({
+      'mrId':           uid,
+      'mrName':         mrName,
+      'doctorId':       widget.docId,
+      'doctorName':     widget.data['name'] ?? '',
+      'date':           today,
+      'distanceMeters': distanceMeters,
+      'status':         'pending',
+      'createdAt':      FieldValue.serverTimestamp(),
+    });
+
+    if (mounted) {
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(children: [
+            Icon(Icons.send, color: Colors.blue),
+            SizedBox(width: 8),
+            Text('Request Sent'),
+          ]),
+          content: const Text(
+            'Your GPS override request has been sent to admin. You will receive a notification once approved.\n\nYou can place orders directly from the notification.',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK')),
+          ],
+        ),
+      );
+    }
+  }
+
   void _showMsg(String msg, Color color) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: color));
@@ -1028,12 +1254,75 @@ class _MrDoctorCardState extends State<_MrDoctorCard> {
               ),
             ]),
           ),
-          _checking
-              ? const SizedBox(width: 36, height: 36, child: CircularProgressIndicator(strokeWidth: 2))
-              : ElevatedButton(
-            onPressed: _checkIn,
-            style: ElevatedButton.styleFrom(minimumSize: const Size(72, 36), padding: const EdgeInsets.symmetric(horizontal: 12)),
-            child: const Text('Check In', style: TextStyle(fontSize: 12)),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _checking
+                  ? const SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+                  : ElevatedButton(
+                onPressed: _checkIn,
+                style: ElevatedButton.styleFrom(
+                    minimumSize: const Size(72, 32),
+                    padding:
+                    const EdgeInsets.symmetric(horizontal: 10)),
+                child: const Text('Check In',
+                    style: TextStyle(fontSize: 11)),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 52,
+                    height: 28,
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => MrEditDoctorScreen(
+                            docId: widget.docId,
+                            existingData: widget.data,
+                          ),
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        side: const BorderSide(color: Color(0xFF1565C0)),
+                        foregroundColor: const Color(0xFF1565C0),
+                      ),
+                      child:
+                      const Text('Edit', style: TextStyle(fontSize: 10)),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  SizedBox(
+                    width: 52,
+                    height: 28,
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => DoctorOrderSummaryScreen(
+                            doctorId:   widget.docId,
+                            doctorName: widget.data['name'] ?? 'Doctor',
+                          ),
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        side: BorderSide(color: Colors.green.shade600),
+                        foregroundColor: Colors.green.shade700,
+                      ),
+                      child: const Text('Orders',
+                          style: TextStyle(fontSize: 10)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
         ]),
       ),
@@ -1041,6 +1330,626 @@ class _MrDoctorCardState extends State<_MrDoctorCard> {
   }
 }
 
+// ─────────────────────────────────────────
+// DOCTOR ORDER SUMMARY SCREEN
+// ─────────────────────────────────────────
+class DoctorOrderSummaryScreen extends StatelessWidget {
+  final String doctorId;
+  final String doctorName;
+
+  const DoctorOrderSummaryScreen({
+    super.key,
+    required this.doctorId,
+    required this.doctorName,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(doctorName),
+      ),
+      body: FutureBuilder<QuerySnapshot>(
+        future: FirebaseFirestore.instance
+            .collection('orders')
+            .where('doctorId', isEqualTo: doctorId)
+            .where('status', isEqualTo: 'delivered')
+            .get(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(
+              child: Text('Error: ${snapshot.error}',
+                  style: const TextStyle(color: Colors.red)),
+            );
+          }
+
+          final docs = snapshot.data?.docs ?? [];
+
+          if (docs.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.inventory_2_outlined,
+                      size: 80, color: Colors.grey.shade300),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No delivered orders yet',
+                    style: TextStyle(
+                        color: Colors.grey.shade500, fontSize: 16),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          // ── Aggregate quantities per product ──────────────────────
+          final Map<String, int>    qtyMap  = {};
+          final Map<String, String> nameMap = {};
+
+          for (final doc in docs) {
+            final data  = doc.data() as Map<String, dynamic>;
+            final items = (data['items'] as List?) ?? [];
+            for (final item in items) {
+              final pid  = item['productId']?.toString()   ?? '';
+              final name = item['productName']?.toString() ?? pid;
+              final qty  = (item['quantity'] as num?)?.toInt() ?? 0;
+              if (pid.isEmpty) continue;
+              qtyMap[pid]  = (qtyMap[pid]  ?? 0) + qty;
+              nameMap[pid] = name;
+            }
+          }
+
+          if (qtyMap.isEmpty) {
+            return Center(
+              child: Text(
+                'No product data found.',
+                style: TextStyle(color: Colors.grey.shade500, fontSize: 16),
+              ),
+            );
+          }
+
+          // ── Sort by quantity descending ───────────────────────────
+          final sorted = qtyMap.entries.toList()
+            ..sort((a, b) => b.value.compareTo(a.value));
+
+          final totalQty = qtyMap.values.fold(0, (a, b) => a + b);
+
+          return Column(
+            children: [
+              // ── Header ─────────────────────────────────────────────
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                      colors: [Color(0xFF1565C0), Color(0xFF1E88E5)]),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _headerStat('Products', '${sorted.length}', Icons.medication),
+                    _headerStat('Total Units', '$totalQty', Icons.inventory_2),
+                    _headerStat('Orders', '${docs.length}', Icons.receipt_long),
+                  ],
+                ),
+              ),
+
+              // ── Table header ───────────────────────────────────────
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 12),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1565C0).withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Row(
+                  children: [
+                    Expanded(
+                      child: Text('Product',
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: 13)),
+                    ),
+                    Text('Qty',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 13)),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 6),
+
+              // ── Product rows ───────────────────────────────────────
+              Expanded(
+                child: ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  itemCount: sorted.length,
+                  itemBuilder: (context, i) {
+                    final entry   = sorted[i];
+                    final name    = nameMap[entry.key] ?? entry.key;
+                    final qty     = entry.value;
+                    final isEven  = i % 2 == 0;
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: isEven
+                            ? Colors.white
+                            : Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        children: [
+                          // Rank
+                          Container(
+                            width: 24,
+                            height: 24,
+                            margin: const EdgeInsets.only(right: 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1565C0).withOpacity(0.1),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Center(
+                              child: Text(
+                                '${i + 1}',
+                                style: const TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF1565C0)),
+                              ),
+                            ),
+                          ),
+                          // Product name
+                          Expanded(
+                            child: Text(
+                              name,
+                              style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500),
+                            ),
+                          ),
+                          // Qty badge
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1565C0).withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                  color: const Color(0xFF1565C0)
+                                      .withOpacity(0.3)),
+                            ),
+                            child: Text(
+                              '$qty units',
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF1565C0),
+                                  fontSize: 13),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+
+              // ── Total row ──────────────────────────────────────────
+              Container(
+                margin: const EdgeInsets.all(12),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1565C0).withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                      color: const Color(0xFF1565C0).withOpacity(0.2)),
+                ),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Total',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 15),
+                      ),
+                    ),
+                    Text(
+                      '$totalQty units',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                          color: Color(0xFF1565C0)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _headerStat(String label, String value, IconData icon) => Column(
+    children: [
+      Icon(icon, color: Colors.white70, size: 20),
+      const SizedBox(height: 4),
+      Text(value,
+          style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 18)),
+      Text(label,
+          style: const TextStyle(color: Colors.white70, fontSize: 11)),
+    ],
+  );
+}
+
+// ─────────────────────────────────────────
+// MR EDIT DOCTOR SCREEN
+// ─────────────────────────────────────────
+class MrEditDoctorScreen extends StatefulWidget {
+  final String docId;
+  final Map<String, dynamic> existingData;
+  const MrEditDoctorScreen({super.key, required this.docId, required this.existingData});
+
+  @override
+  State<MrEditDoctorScreen> createState() => _MrEditDoctorScreenState();
+}
+
+class _MrEditDoctorScreenState extends State<MrEditDoctorScreen> {
+  late final TextEditingController _nameController;
+  late final TextEditingController _hospitalController;
+  late final TextEditingController _areaController;
+  late final TextEditingController _addressController;
+  late final TextEditingController _contactController;
+  late final TextEditingController _licence20bController;
+  late final TextEditingController _licence21bController;
+  late final TextEditingController _gstController;
+
+  late String _selectedDivision;
+  late String _selectedSpecialization;
+  late final double? _latitude;
+  late final double? _longitude;
+  bool _isLoading = false;
+  String _errorMessage = '';
+
+  final List<String> _divisions = ['Ortho', 'Gynec', 'General'];
+  final List<String> _specializations = [
+    'Orthopedic Surgeon', 'Gynecologist', 'General Physician',
+    'Pediatrician', 'Cardiologist', 'Dermatologist', 'ENT Specialist', 'Other',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    final d = widget.existingData;
+    _nameController       = TextEditingController(text: d['name']       ?? '');
+    _hospitalController   = TextEditingController(text: d['hospital']   ?? '');
+    _areaController       = TextEditingController(text: d['area']       ?? '');
+    _addressController    = TextEditingController(text: d['address']    ?? '');
+    _contactController    = TextEditingController(text: d['contact']    ?? '');
+    _licence20bController = TextEditingController(text: d['licence20b'] ?? '');
+    _licence21bController = TextEditingController(text: d['licence21b'] ?? '');
+    _gstController        = TextEditingController(text: d['gst']        ?? '');
+    _selectedDivision       = d['division']       ?? 'Ortho';
+    _selectedSpecialization = d['specialization'] ?? 'Orthopedic Surgeon';
+    _latitude               = (d['latitude']  as num?)?.toDouble();
+    _longitude              = (d['longitude'] as num?)?.toDouble();
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _hospitalController.dispose();
+    _areaController.dispose();
+    _addressController.dispose();
+    _contactController.dispose();
+    _licence20bController.dispose();
+    _licence21bController.dispose();
+    _gstController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _openInMaps(double lat, double lng) async {
+    final uri = Uri.parse('https://www.google.com/maps?q=$lat,$lng');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not open Google Maps.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _save() async {
+    final name     = _nameController.text.trim();
+    final hospital = _hospitalController.text.trim();
+    final area     = _areaController.text.trim();
+
+    if (name.isEmpty || hospital.isEmpty || area.isEmpty) {
+      setState(() => _errorMessage = 'Please fill name, hospital and area.');
+      return;
+    }
+
+    setState(() { _isLoading = true; _errorMessage = ''; });
+    try {
+      await db.collection('doctors').doc(widget.docId).update({
+        'name':           name,
+        'specialization': _selectedSpecialization,
+        'hospital':       hospital,
+        'area':           area,
+        'address':        _addressController.text.trim(),
+        'division':       _selectedDivision,
+        'contact':        _contactController.text.trim(),
+        'licence20b':     _licence20bController.text.trim(),
+        'licence21b':     _licence21bController.text.trim(),
+        'gst':            _gstController.text.trim(),
+        'updatedAt':      FieldValue.serverTimestamp(),
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Doctor updated!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      setState(() { _isLoading = false; _errorMessage = 'Failed to save. Try again.'; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Edit Doctor')),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+
+          _label('Doctor Name'),
+          TextField(
+            controller: _nameController,
+            decoration: const InputDecoration(
+              hintText: 'e.g. Dr. Ramesh Kumar',
+              prefixIcon: Icon(Icons.person_outline),
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          _label('Specialization'),
+          DropdownButtonFormField<String>(
+            value: _selectedSpecialization,
+            decoration: const InputDecoration(
+              prefixIcon: Icon(Icons.medical_information_outlined),
+            ),
+            items: _specializations
+                .map((s) => DropdownMenuItem(value: s, child: Text(s)))
+                .toList(),
+            onChanged: (val) => setState(() => _selectedSpecialization = val!),
+          ),
+          const SizedBox(height: 14),
+
+          _label('Hospital / Clinic Name'),
+          TextField(
+            controller: _hospitalController,
+            decoration: const InputDecoration(
+              hintText: 'e.g. City Hospital',
+              prefixIcon: Icon(Icons.local_hospital_outlined),
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          _label('Area'),
+          TextField(
+            controller: _areaController,
+            decoration: const InputDecoration(
+              hintText: 'e.g. Nellore North',
+              prefixIcon: Icon(Icons.map_outlined),
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          _label('Full Address (Optional)'),
+          TextField(
+            controller: _addressController,
+            maxLines: 2,
+            decoration: const InputDecoration(
+              hintText: 'Enter full address...',
+              prefixIcon: Icon(Icons.location_on_outlined),
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          _label('Contact Number (Optional)'),
+          TextField(
+            controller: _contactController,
+            keyboardType: TextInputType.phone,
+            decoration: const InputDecoration(
+              hintText: 'e.g. 9876543210',
+              prefixIcon: Icon(Icons.phone_outlined),
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          _label('Drug Licence (Optional)'),
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.blue.shade100),
+            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('20B Licence No.',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 6),
+              TextField(
+                controller: _licence20bController,
+                decoration: const InputDecoration(
+                  hintText: 'e.g. DL-20B-XXXXX',
+                  prefixIcon: Icon(Icons.badge_outlined, size: 18),
+                  contentPadding:
+                  EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text('21B Licence No.',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 6),
+              TextField(
+                controller: _licence21bController,
+                decoration: const InputDecoration(
+                  hintText: 'e.g. DL-21B-XXXXX',
+                  prefixIcon: Icon(Icons.badge_outlined, size: 18),
+                  contentPadding:
+                  EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                ),
+              ),
+            ]),
+          ),
+          const SizedBox(height: 14),
+
+          _label('GST Number (Optional)'),
+          TextField(
+            controller: _gstController,
+            textCapitalization: TextCapitalization.characters,
+            decoration: const InputDecoration(
+              hintText: 'e.g. 29ABCDE1234F1Z5',
+              prefixIcon: Icon(Icons.receipt_long_outlined),
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          _label('Division'),
+          DropdownButtonFormField<String>(
+            value: _selectedDivision,
+            decoration: const InputDecoration(
+              prefixIcon: Icon(Icons.category_outlined),
+            ),
+            items: _divisions
+                .map((d) => DropdownMenuItem(value: d, child: Text(d)))
+                .toList(),
+            onChanged: (val) => setState(() => _selectedDivision = val!),
+          ),
+          const SizedBox(height: 20),
+
+          // ── Location — view only, no editing for MR ──────────────
+          _label('Doctor\'s Location'),
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: _latitude != null
+                  ? Colors.green.shade50
+                  : Colors.orange.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: _latitude != null
+                    ? Colors.green.shade200
+                    : Colors.orange.shade200,
+              ),
+            ),
+            child: Row(children: [
+              Icon(
+                _latitude != null ? Icons.location_on : Icons.location_off,
+                color: _latitude != null ? Colors.green : Colors.orange,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _latitude != null
+                      ? 'Location is set by admin.'
+                      : 'No location set. Contact admin.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: _latitude != null
+                        ? Colors.green.shade700
+                        : Colors.orange.shade700,
+                  ),
+                ),
+              ),
+              if (_latitude != null)
+                TextButton.icon(
+                  onPressed: () => _openInMaps(_latitude!, _longitude!),
+                  icon: const Icon(Icons.map, size: 16),
+                  label: const Text('View', style: TextStyle(fontSize: 12)),
+                  style: TextButton.styleFrom(
+                      foregroundColor: const Color(0xFF1565C0)),
+                ),
+            ]),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.orange.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.orange.shade200),
+            ),
+            child: const Row(children: [
+              Icon(Icons.info_outline, color: Colors.orange, size: 16),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Doctor location can only be updated by admin. Contact admin if location needs to be changed.',
+                  style: TextStyle(fontSize: 11, color: Colors.orange),
+                ),
+              ),
+            ]),
+          ),
+          const SizedBox(height: 20),
+
+          if (_errorMessage.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.all(10),
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.red.shade200),
+              ),
+              child: Row(children: [
+                const Icon(Icons.error_outline, color: Colors.red, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(_errorMessage,
+                      style: const TextStyle(color: Colors.red, fontSize: 13)),
+                ),
+              ]),
+            ),
+
+          _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : ElevatedButton.icon(
+            onPressed: _save,
+            icon: const Icon(Icons.save),
+            label: const Text('Update Doctor',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ),
+          const SizedBox(height: 30),
+        ]),
+      ),
+    );
+  }
+
+  Widget _label(String text) => Padding(
+    padding: const EdgeInsets.only(bottom: 6),
+    child: Text(text, style: const TextStyle(fontWeight: FontWeight.w600)),
+  );
+}
 // ─────────────────────────────────────────
 // MR PRODUCTS SCREEN
 // ─────────────────────────────────────────
@@ -1240,14 +2149,7 @@ class _MrProductsScreenState extends State<MrProductsScreen> {
                       title: Text(data['name'] ?? 'Unknown', style: const TextStyle(fontWeight: FontWeight.bold)),
                       subtitle: Text('${data['packSize'] ?? ''} • ₹${data['price'] ?? 'N/A'}\n$division'),
                       isThreeLine: true,
-                      trailing: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
-                        Text('$stock units', style: TextStyle(fontWeight: FontWeight.bold, color: stockColor)),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(color: stockColor.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
-                          child: Text(stockLabel, style: TextStyle(fontSize: 10, color: stockColor, fontWeight: FontWeight.w600)),
-                        ),
-                      ]),
+                      trailing: null,
                     ),
                   );
                 },
@@ -1808,11 +2710,6 @@ class _MrPlaceOrderScreenState extends State<MrPlaceOrderScreen> {
                         final data = _productCache[p.id] ?? (p.data() as Map<String, dynamic>);
                         final qty = _quantities[p.id] ?? 0;
                         final stockistQty = (data['stockistQty'] as num?)?.toInt() ?? 0;
-                        Color stockColor;
-                        String stockLabel;
-                        if (stockistQty == 0) { stockColor = Colors.red; stockLabel = 'No stock'; }
-                        else if (stockistQty < 10) { stockColor = Colors.orange; stockLabel = '$stockistQty units'; }
-                        else { stockColor = Colors.green; stockLabel = '$stockistQty units'; }
                         return Card(
                           margin: const EdgeInsets.only(bottom: 8),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -1824,20 +2721,65 @@ class _MrPlaceOrderScreenState extends State<MrPlaceOrderScreen> {
                                 const SizedBox(height: 2),
                                 Text('₹${data['price'] ?? 'N/A'} • ${data['packSize'] ?? ''}', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
                                 const SizedBox(height: 4),
-                                Row(children: [
-                                  const Icon(Icons.store, size: 12, color: Colors.grey),
-                                  const SizedBox(width: 4),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                    decoration: BoxDecoration(color: stockColor.withOpacity(0.1), borderRadius: BorderRadius.circular(8), border: Border.all(color: stockColor.withOpacity(0.4))),
-                                    child: Text('Stockist: $stockLabel', style: TextStyle(fontSize: 10, color: stockColor, fontWeight: FontWeight.w600)),
-                                  ),
-                                ]),
                               ])),
                               Row(children: [
-                                IconButton(onPressed: qty > 0 ? () => setState(() => _quantities[p.id] = qty - 1) : null, icon: const Icon(Icons.remove_circle_outline), color: const Color(0xFF1565C0), iconSize: 22),
-                                SizedBox(width: 32, child: Text('$qty', textAlign: TextAlign.center, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
-                                IconButton(onPressed: () => setState(() => _quantities[p.id] = qty + 1), icon: const Icon(Icons.add_circle_outline), color: const Color(0xFF1565C0), iconSize: 22),
+                                IconButton(
+                                  onPressed: qty > 0 ? () => setState(() => _quantities[p.id] = qty - 1) : null,
+                                  icon: const Icon(Icons.remove_circle_outline),
+                                  color: const Color(0xFF1565C0),
+                                  iconSize: 22,
+                                ),
+                                GestureDetector(
+                                  onTap: () async {
+                                    final ctrl = TextEditingController(text: qty > 0 ? '$qty' : '');
+                                    final result = await showDialog<int>(
+                                      context: context,
+                                      builder: (_) => AlertDialog(
+                                        title: const Text('Enter Quantity'),
+                                        content: TextField(
+                                          controller: ctrl,
+                                          keyboardType: TextInputType.number,
+                                          autofocus: true,
+                                          decoration: const InputDecoration(
+                                            hintText: 'e.g. 25',
+                                            suffixText: 'units',
+                                          ),
+                                        ),
+                                        actions: [
+                                          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+                                          TextButton(
+                                            onPressed: () {
+                                              final val = int.tryParse(ctrl.text.trim());
+                                              Navigator.pop(context, val != null && val >= 0 ? val : null);
+                                            },
+                                            child: const Text('Set'),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                    if (result != null) setState(() => _quantities[p.id] = result);
+                                  },
+                                  child: Container(
+                                    width: 48,
+                                    padding: const EdgeInsets.symmetric(vertical: 4),
+                                    decoration: BoxDecoration(
+                                      border: Border.all(color: const Color(0xFF1565C0).withOpacity(0.4)),
+                                      borderRadius: BorderRadius.circular(6),
+                                      color: const Color(0xFF1565C0).withOpacity(0.05),
+                                    ),
+                                    child: Text(
+                                      '$qty',
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1565C0)),
+                                    ),
+                                  ),
+                                ),
+                                IconButton(
+                                  onPressed: () => setState(() => _quantities[p.id] = qty + 1),
+                                  icon: const Icon(Icons.add_circle_outline),
+                                  color: const Color(0xFF1565C0),
+                                  iconSize: 22,
+                                ),
                               ]),
                             ]),
                           ),
@@ -2874,23 +3816,46 @@ class MrNotificationsScreen extends StatelessWidget {
         actions: [
           TextButton(
             onPressed: () async {
-              final unread = await db.collection('notifications').where('mrId', isEqualTo: uid).where('isRead', isEqualTo: false).get();
-              for (final doc in unread.docs) { await doc.reference.update({'isRead': true}); }
+              final unread = await db
+                  .collection('notifications')
+                  .where('mrId', isEqualTo: uid)
+                  .where('isRead', isEqualTo: false)
+                  .get();
+              for (final doc in unread.docs) {
+                await doc.reference.update({'isRead': true});
+              }
             },
-            child: const Text('Mark all read', style: TextStyle(color: Colors.white, fontSize: 13)),
+            child: const Text('Mark all read',
+                style: TextStyle(color: Colors.white, fontSize: 13)),
           ),
         ],
       ),
       body: StreamBuilder<QuerySnapshot>(
-        stream: db.collection('notifications').where('mrId', isEqualTo: uid).orderBy('createdAt', descending: true).snapshots(),
+        stream: db
+            .collection('notifications')
+            .where('mrId', isEqualTo: uid)
+            .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(
+            DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day)))
+            .orderBy('createdAt', descending: true)
+            .snapshots(),
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Icon(Icons.notifications_none, size: 80, color: Colors.grey.shade300),
-              const SizedBox(height: 16),
-              Text('No notifications yet', style: TextStyle(color: Colors.grey.shade500, fontSize: 16)),
-            ]));
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.notifications_none,
+                      size: 80, color: Colors.grey.shade300),
+                  const SizedBox(height: 16),
+                  Text('No notifications yet',
+                      style: TextStyle(
+                          color: Colors.grey.shade500, fontSize: 16)),
+                ],
+              ),
+            );
           }
           final docs = snapshot.data!.docs;
           return ListView.builder(
@@ -2900,6 +3865,16 @@ class MrNotificationsScreen extends StatelessWidget {
               final data   = docs[i].data() as Map<String, dynamic>;
               final isRead = data['isRead'] as bool? ?? false;
               final type   = data['type'] as String? ?? '';
+
+              // GPS override approved – special card with action buttons
+              if (type == 'gps_override_approved') {
+                return _GpsOverrideNotificationCard(
+                  doc: docs[i],
+                  data: data,
+                  isRead: isRead,
+                );
+              }
+
               Color iconColor;
               IconData iconData;
               switch (type) {
@@ -2910,18 +3885,40 @@ class MrNotificationsScreen extends StatelessWidget {
                 case 'order_dispatched': iconColor = Colors.teal;   iconData = Icons.local_shipping;  break;
                 case 'leave_approved':   iconColor = Colors.green;  iconData = Icons.event_available; break;
                 case 'leave_rejected':   iconColor = Colors.red;    iconData = Icons.event_busy;      break;
+                case 'gps_override_rejected': iconColor = Colors.red; iconData = Icons.gps_off;      break;
                 default:                 iconColor = Colors.orange; iconData = Icons.notifications;   break;
               }
+
               return Card(
                 margin: const EdgeInsets.only(bottom: 8),
                 color: isRead ? Colors.white : Colors.blue.shade50,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
                 child: ListTile(
-                  leading: CircleAvatar(backgroundColor: iconColor.withOpacity(0.15), child: Icon(iconData, color: iconColor, size: 20)),
-                  title: Text(data['title'] ?? '', style: TextStyle(fontWeight: isRead ? FontWeight.normal : FontWeight.bold, fontSize: 14)),
-                  subtitle: Text(data['body'] ?? '', style: const TextStyle(fontSize: 12)),
-                  trailing: isRead ? null : Container(width: 8, height: 8, decoration: const BoxDecoration(color: Colors.blue, shape: BoxShape.circle)),
-                  onTap: () async { if (!isRead) await docs[i].reference.update({'isRead': true}); },
+                  leading: CircleAvatar(
+                    backgroundColor: iconColor.withOpacity(0.15),
+                    child: Icon(iconData, color: iconColor, size: 20),
+                  ),
+                  title: Text(data['title'] ?? '',
+                      style: TextStyle(
+                          fontWeight:
+                          isRead ? FontWeight.normal : FontWeight.bold,
+                          fontSize: 14)),
+                  subtitle: Text(data['body'] ?? '',
+                      style: const TextStyle(fontSize: 12)),
+                  trailing: isRead
+                      ? null
+                      : Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                        color: Colors.blue, shape: BoxShape.circle),
+                  ),
+                  onTap: () async {
+                    if (!isRead) {
+                      await docs[i].reference.update({'isRead': true});
+                    }
+                  },
                 ),
               );
             },
@@ -2931,6 +3928,191 @@ class MrNotificationsScreen extends StatelessWidget {
     );
   }
 }
+
+// ─────────────────────────────────────────
+// GPS OVERRIDE NOTIFICATION CARD
+// (stateful – tracks 10-min window & action buttons)
+// ─────────────────────────────────────────
+class _GpsOverrideNotificationCard extends StatefulWidget {
+  final QueryDocumentSnapshot doc;
+  final Map<String, dynamic> data;
+  final bool isRead;
+  const _GpsOverrideNotificationCard({
+    required this.doc,
+    required this.data,
+    required this.isRead,
+  });
+
+  @override
+  State<_GpsOverrideNotificationCard> createState() =>
+      _GpsOverrideNotificationCardState();
+}
+
+class _GpsOverrideNotificationCardState
+    extends State<_GpsOverrideNotificationCard> {
+  // Returns remaining seconds within the 10-minute approval window.
+  int _remainingSeconds() {
+    final approved = widget.data['approvedAt'];
+    if (approved == null) return 0;
+    final approvedTime = (approved as Timestamp).toDate();
+    final elapsed = DateTime.now().difference(approvedTime).inSeconds;
+    final remaining = 600 - elapsed; // 10 min = 600 s
+    return remaining < 0 ? 0 : remaining;
+  }
+
+  bool get _windowOpen => _remainingSeconds() > 0;
+
+  String _fmt(int s) {
+    final m = s ~/ 60;
+    final sec = s % 60;
+    return '$m:${sec.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final remaining = _remainingSeconds();
+    final open      = remaining > 0;
+
+    final doctorId   = widget.data['doctorId']   as String? ?? '';
+    final doctorName = widget.data['doctorName'] as String? ?? '';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      color: widget.isRead
+          ? Colors.white
+          : (open ? Colors.green.shade50 : Colors.grey.shade50),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          // Header row
+          Row(children: [
+            CircleAvatar(
+              backgroundColor:
+              (open ? Colors.green : Colors.grey).withOpacity(0.15),
+              child: Icon(
+                open ? Icons.gps_fixed : Icons.gps_off,
+                color: open ? Colors.green : Colors.grey,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(
+                  widget.data['title'] ?? 'GPS Override Approved ✅',
+                  style: TextStyle(
+                    fontWeight: widget.isRead
+                        ? FontWeight.normal
+                        : FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                Text(widget.data['body'] ?? '',
+                    style: const TextStyle(fontSize: 12)),
+              ]),
+            ),
+            if (!widget.isRead)
+              Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                    color: Colors.green, shape: BoxShape.circle),
+              ),
+          ]),
+
+          // Timer or expired badge
+          const SizedBox(height: 8),
+          if (open) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.green.shade100,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.timer, size: 14, color: Colors.green),
+                const SizedBox(width: 4),
+                // Live countdown using a stream-builder tick
+                StreamBuilder<int>(
+                  stream: Stream.periodic(
+                      const Duration(seconds: 1),
+                          (t) => _remainingSeconds()),
+                  builder: (context, snap) {
+                    final r = snap.data ?? remaining;
+                    if (r <= 0) {
+                      WidgetsBinding.instance
+                          .addPostFrameCallback((_) => setState(() {}));
+                      return const Text('Expired',
+                          style: TextStyle(
+                              color: Colors.red,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold));
+                    }
+                    return Text('Window closes in ${_fmt(r)}',
+                        style: const TextStyle(
+                            color: Colors.green,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold));
+                  },
+                ),
+              ]),
+            ),
+            const SizedBox(height: 10),
+
+            // Action buttons
+            Row(children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    await widget.doc.reference.update({'isRead': true});
+                    if (!context.mounted) return;
+                    _CheckInSession.set(doctorId, doctorName);
+                    Navigator.of(context).pop();
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => MrPlaceOrderScreen(
+                          preselectedDoctorId:   doctorId,
+                          preselectedDoctorName: doctorName,
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.shopping_cart, size: 16),
+                  label: const Text('Place Order'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF1565C0),
+                    side: const BorderSide(color: Color(0xFF1565C0)),
+                  ),
+                ),
+              ),
+            ]),
+          ] else ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.timer_off, size: 14, color: Colors.grey),
+                SizedBox(width: 4),
+                Text('Override window expired',
+                    style: TextStyle(
+                        color: Colors.grey,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500)),
+              ]),
+            ),
+          ],
+        ]),
+      ),
+    );
+  }
+}
+
 
 // ─────────────────────────────────────────
 // MR PROFILE SCREEN
