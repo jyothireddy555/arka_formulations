@@ -10,6 +10,9 @@ String? _activeCheckInDoctorId;
 String? _activeCheckInDoctorName;
 DateTime? _activeCheckInTime;
 
+// All doctor cards listen to this notifier and rebuild together
+final _checkInNotifier = ValueNotifier<String?>(_CheckInSession.doctorId);
+
 // Persistent check-in session using static variables
 class _CheckInSession {
   static String? doctorId;
@@ -30,12 +33,14 @@ class _CheckInSession {
     doctorId = id;
     doctorName = name;
     checkInTime = DateTime.now();
+    _checkInNotifier.value = id;     // ← notify all cards
   }
 
   static void clear() {
     doctorId = null;
     doctorName = null;
     checkInTime = null;
+    _checkInNotifier.value = null;   // ← notify all cards
   }
 }
 
@@ -535,6 +540,7 @@ class _MrAddDoctorScreenState extends State<MrAddDoctorScreen> {
     'Cardiologist',
     'Dermatologist',
     'ENT Specialist',
+    'Dentist',
     'Other',
   ];
   String _selectedSpecialization = 'Orthopedic Surgeon';
@@ -885,9 +891,9 @@ class _MrDoctorCardState extends State<_MrDoctorCard> {
 
   Color _divColor(String div) {
     switch (div) {
-      case 'Ortho': return Colors.blue;
-      case 'Gynec': return Colors.pink;
-      default:      return Colors.green;
+      case 'Osteon': return Colors.blue;
+      case 'Ceflon': return Colors.teal;
+      default:       return Colors.green;
     }
   }
 
@@ -1236,15 +1242,39 @@ class _MrDoctorCardState extends State<_MrDoctorCard> {
                   width: 36,
                   height: 36,
                   child: CircularProgressIndicator(strokeWidth: 2))
-                  : ElevatedButton(
-                onPressed: _checkIn,
-                style: ElevatedButton.styleFrom(
-                    minimumSize: const Size(72, 32),
-                    padding:
-                    const EdgeInsets.symmetric(horizontal: 10)),
-                child: const Text('Check In',
-                    style: TextStyle(fontSize: 11)),
-              ),
+                  : ValueListenableBuilder<String?>(
+                      valueListenable: _checkInNotifier,
+                      builder: (context, activeId, _) {
+                        // Re-evaluate live each time notifier fires
+                        final sessionValid = _CheckInSession.isValid();
+                        final anotherIsCheckedIn = sessionValid && activeId != widget.docId;
+                        final isMyCheckIn       = sessionValid && activeId == widget.docId;
+                        return Tooltip(
+                          message: anotherIsCheckedIn
+                              ? 'Check out from ${_CheckInSession.doctorName ?? 'current doctor'} first'
+                              : '',
+                          child: ElevatedButton(
+                            onPressed: anotherIsCheckedIn ? null : _checkIn,
+                            style: ElevatedButton.styleFrom(
+                              minimumSize: const Size(72, 32),
+                              padding: const EdgeInsets.symmetric(horizontal: 10),
+                              backgroundColor: isMyCheckIn
+                                  ? Colors.green
+                                  : anotherIsCheckedIn
+                                      ? Colors.grey.shade300
+                                      : null,
+                              foregroundColor: anotherIsCheckedIn
+                                  ? Colors.grey.shade500
+                                  : null,
+                            ),
+                            child: Text(
+                              isMyCheckIn ? 'Checked ✓' : 'Check In',
+                              style: const TextStyle(fontSize: 11),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
               const SizedBox(height: 4),
               Row(
                 mainAxisSize: MainAxisSize.min,
@@ -1601,7 +1631,7 @@ class _MrEditDoctorScreenState extends State<MrEditDoctorScreen> {
 
   final List<String> _specializations = [
     'Orthopedic Surgeon', 'Gynecologist', 'General Physician',
-    'Pediatrician', 'Cardiologist', 'Dermatologist', 'ENT Specialist', 'Other',
+    'Pediatrician', 'Cardiologist', 'Dermatologist', 'ENT Specialist', 'Dentist', 'Other',
   ];
 
   @override
@@ -1926,7 +1956,7 @@ class MrProductsScreen extends StatefulWidget {
 class _MrProductsScreenState extends State<MrProductsScreen> {
   String _filterDivision = 'All';
   String _searchQuery    = '';
-  final List<String> _divisions = ['All', 'Ortho', 'Gynec', 'General'];
+  final List<String> _divisions = ['All', 'Osteon', 'Ceflon', 'Generic'];
   List<Map<String, dynamic>> _stockists = [];
   String? _selectedStockistUid;
   String? _selectedStockistName;
@@ -2104,9 +2134,9 @@ class _MrProductsScreenState extends State<MrProductsScreen> {
                   final division = data['division'] ?? 'General';
                   Color color;
                   switch (division) {
-                    case 'Ortho': color = Colors.blue; break;
-                    case 'Gynec': color = Colors.pink; break;
-                    default:      color = Colors.green;
+                    case 'Osteon': color = Colors.blue; break;
+                    case 'Ceflon': color = Colors.teal; break;
+                    default:       color = Colors.green;
                   }
                   return Card(
                     margin: const EdgeInsets.only(bottom: 10),
@@ -2275,7 +2305,8 @@ class _MrPlaceOrderScreenState extends State<MrPlaceOrderScreen> {
   String? _selectedStockistName;
   List<Map<String, dynamic>> _stockists = [];
   bool _loadingStockists = true;
-  final Map<String, int> _quantities = {};
+  final Map<String, int> _quantities  = {};   // billable qty
+  final Map<String, int> _offerQty    = {};   // free/offer qty (not billed)
   final Map<String, Map<String, dynamic>> _productCache = {};
   final _remarksCtrl = TextEditingController();
   bool _submitting = false;
@@ -2354,7 +2385,7 @@ Future<void> _loadStockists() async {
   }
 
   Future<void> _loadProductsForStockist(String stockistUid) async {
-    setState(() { _loadingProducts = true; _products = []; _quantities.clear(); _productCache.clear(); });
+    setState(() { _loadingProducts = true; _products = []; _quantities.clear(); _offerQty.clear(); _productCache.clear(); });
     try {
       final productsSnap = await db.collection('products').orderBy('name').get();
       final stockDoc = await db.collection('stockist_stock').doc(stockistUid).get();
@@ -2475,6 +2506,7 @@ Future<void> _loadStockists() async {
       'productId':   e.key,
       'productName': _productCache[e.key]?['name'] ?? '',
       'quantity':    e.value,
+      'offerQty':    _offerQty[e.key] ?? 0,
       'mrp':         _productCache[e.key]?['mrp'] ?? '',
       'ptr':         _productCache[e.key]?['ptr'] ?? '',
       'pts':         _productCache[e.key]?['pts'] ?? '',
@@ -2820,16 +2852,18 @@ Future<void> _loadStockists() async {
                   else
                     Column(
                       children: _products.map((p) {
-                        final data = _productCache[p.id] ?? (p.data() as Map<String, dynamic>);
-                        final qty = _quantities[p.id] ?? 0;
-                        final stockistQty = (data['stockistQty'] as num?)?.toInt() ?? 0;
+                        final data      = _productCache[p.id] ?? (p.data() as Map<String, dynamic>);
+                        final qty       = _quantities[p.id] ?? 0;
+                        final offer     = _offerQty[p.id] ?? 0;
                         return Card(
                           margin: const EdgeInsets.only(bottom: 8),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            child: Row(children: [
-                              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // ── Product name + prices ─────────────────────
                                 Text(data['name'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                                 const SizedBox(height: 4),
                                 Row(children: [
@@ -2849,68 +2883,129 @@ Future<void> _loadStockists() async {
                                     ),
                                   ],
                                 ]),
-                                const SizedBox(height: 2),
-                              ])),
-                              Row(children: [
-                                IconButton(
-                                  onPressed: qty > 0 ? () => setState(() => _quantities[p.id] = qty - 1) : null,
-                                  icon: const Icon(Icons.remove_circle_outline),
-                                  color: const Color(0xFF1565C0),
-                                  iconSize: 22,
-                                ),
-                                GestureDetector(
-                                  onTap: () async {
-                                    final ctrl = TextEditingController(text: qty > 0 ? '$qty' : '');
-                                    final result = await showDialog<int>(
-                                      context: context,
-                                      builder: (_) => AlertDialog(
-                                        title: const Text('Enter Quantity'),
-                                        content: TextField(
-                                          controller: ctrl,
-                                          keyboardType: TextInputType.number,
-                                          autofocus: true,
-                                          decoration: const InputDecoration(
-                                            hintText: 'e.g. 25',
-                                            suffixText: 'units',
+                                const SizedBox(height: 8),
+                                // ── Qty + Offer row ──────────────────────────────
+                                Row(children: [
+                                  // ── Qty label + stepper ──
+                                  Text('Qty:', style: TextStyle(fontSize: 11, color: Colors.grey.shade600, fontWeight: FontWeight.w600)),
+                                  const SizedBox(width: 4),
+                                  InkWell(
+                                    onTap: qty > 0 ? () => setState(() => _quantities[p.id] = qty - 1) : null,
+                                    child: Icon(Icons.remove_circle_outline,
+                                        size: 22,
+                                        color: qty > 0 ? const Color(0xFF1565C0) : Colors.grey.shade300),
+                                  ),
+                                  GestureDetector(
+                                    onTap: () async {
+                                      final ctrl = TextEditingController(text: qty > 0 ? '$qty' : '');
+                                      final res = await showDialog<int>(
+                                        context: context,
+                                        builder: (_) => AlertDialog(
+                                          title: const Text('Qty'),
+                                          content: TextField(
+                                            controller: ctrl,
+                                            keyboardType: TextInputType.number,
+                                            autofocus: true,
+                                            decoration: const InputDecoration(hintText: 'e.g. 25', suffixText: 'units'),
                                           ),
+                                          actions: [
+                                            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+                                            TextButton(
+                                              onPressed: () {
+                                                final v = int.tryParse(ctrl.text.trim());
+                                                Navigator.pop(context, v != null && v >= 0 ? v : null);
+                                              },
+                                              child: const Text('Set'),
+                                            ),
+                                          ],
                                         ),
-                                        actions: [
-                                          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-                                          TextButton(
-                                            onPressed: () {
-                                              final val = int.tryParse(ctrl.text.trim());
-                                              Navigator.pop(context, val != null && val >= 0 ? val : null);
-                                            },
-                                            child: const Text('Set'),
-                                          ),
-                                        ],
+                                      );
+                                      if (res != null) setState(() => _quantities[p.id] = res);
+                                    },
+                                    child: Container(
+                                      width: 44,
+                                      margin: const EdgeInsets.symmetric(horizontal: 2),
+                                      padding: const EdgeInsets.symmetric(vertical: 3),
+                                      decoration: BoxDecoration(
+                                        border: Border.all(color: const Color(0xFF1565C0).withOpacity(0.4)),
+                                        borderRadius: BorderRadius.circular(6),
+                                        color: const Color(0xFF1565C0).withOpacity(0.05),
                                       ),
-                                    );
-                                    if (result != null) setState(() => _quantities[p.id] = result);
-                                  },
-                                  child: Container(
-                                    width: 48,
-                                    padding: const EdgeInsets.symmetric(vertical: 4),
-                                    decoration: BoxDecoration(
-                                      border: Border.all(color: const Color(0xFF1565C0).withOpacity(0.4)),
-                                      borderRadius: BorderRadius.circular(6),
-                                      color: const Color(0xFF1565C0).withOpacity(0.05),
-                                    ),
-                                    child: Text(
-                                      '$qty',
-                                      textAlign: TextAlign.center,
-                                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1565C0)),
+                                      child: Text('$qty',
+                                          textAlign: TextAlign.center,
+                                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1565C0))),
                                     ),
                                   ),
-                                ),
-                                IconButton(
-                                  onPressed: () => setState(() => _quantities[p.id] = qty + 1),
-                                  icon: const Icon(Icons.add_circle_outline),
-                                  color: const Color(0xFF1565C0),
-                                  iconSize: 22,
-                                ),
-                              ]),
-                            ]),
+                                  InkWell(
+                                    onTap: () => setState(() => _quantities[p.id] = qty + 1),
+                                    child: const Icon(Icons.add_circle_outline, size: 22, color: Color(0xFF1565C0)),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  // ── Offer label + stepper ──
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.green.shade50,
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: Colors.green.shade200),
+                                    ),
+                                    child: Text('FREE', style: TextStyle(fontSize: 9, color: Colors.green.shade700, fontWeight: FontWeight.bold)),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  InkWell(
+                                    onTap: offer > 0 ? () => setState(() => _offerQty[p.id] = offer - 1) : null,
+                                    child: Icon(Icons.remove_circle_outline,
+                                        size: 20,
+                                        color: offer > 0 ? Colors.green.shade600 : Colors.grey.shade300),
+                                  ),
+                                  GestureDetector(
+                                    onTap: () async {
+                                      final ctrl = TextEditingController(text: offer > 0 ? '$offer' : '');
+                                      final res = await showDialog<int>(
+                                        context: context,
+                                        builder: (_) => AlertDialog(
+                                          title: const Text('Offer / Free Qty'),
+                                          content: TextField(
+                                            controller: ctrl,
+                                            keyboardType: TextInputType.number,
+                                            autofocus: true,
+                                            decoration: const InputDecoration(hintText: 'e.g. 2', suffixText: 'free units'),
+                                          ),
+                                          actions: [
+                                            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+                                            TextButton(
+                                              onPressed: () {
+                                                final v = int.tryParse(ctrl.text.trim());
+                                                Navigator.pop(context, v != null && v >= 0 ? v : null);
+                                              },
+                                              child: const Text('Set'),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                      if (res != null) setState(() => _offerQty[p.id] = res);
+                                    },
+                                    child: Container(
+                                      width: 38,
+                                      margin: const EdgeInsets.symmetric(horizontal: 2),
+                                      padding: const EdgeInsets.symmetric(vertical: 3),
+                                      decoration: BoxDecoration(
+                                        border: Border.all(color: Colors.green.shade300),
+                                        borderRadius: BorderRadius.circular(6),
+                                        color: Colors.green.shade50,
+                                      ),
+                                      child: Text('$offer',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green.shade700)),
+                                    ),
+                                  ),
+                                  InkWell(
+                                    onTap: () => setState(() => _offerQty[p.id] = offer + 1),
+                                    child: Icon(Icons.add_circle_outline, size: 20, color: Colors.green.shade600),
+                                  ),
+                                ]),
+                              ],
+                            ),
                           ),
                         );
                       }).toList(),
@@ -3163,16 +3258,50 @@ class MrOrderDetailScreen extends StatelessWidget {
           const SizedBox(height: 16),
           const Text('Items Ordered', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
           const SizedBox(height: 8),
-          ...items.map((item) => Card(
-            margin: const EdgeInsets.only(bottom: 8),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            child: ListTile(
-              leading: const Icon(Icons.medication, color: Color(0xFF1565C0)),
-              title: Text(item['productName'] ?? ''),
-              subtitle: Text('₹${item['price'] ?? 'N/A'}'),
-              trailing: Text('Qty: ${item['quantity']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-            ),
-          )),
+          ...items.map((item) {
+            final offerQty = (item['offerQty'] as num?)?.toInt() ?? 0;
+            return Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                child: Row(children: [
+                  const Icon(Icons.medication, color: Color(0xFF1565C0), size: 22),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(item['productName'] ?? '',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      if ((item['mrp'] ?? '').toString().isNotEmpty)
+                        Text('MRP: ₹${item['mrp']}  PTR: ₹${item['ptr']}  PTS: ₹${item['pts']}',
+                            style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                    ]),
+                  ),
+                  Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                    Row(children: [
+                      Text('Qty: ', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                      Text('${item['quantity']}',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF1565C0))),
+                    ]),
+                    if (offerQty > 0)
+                      Row(children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                          margin: const EdgeInsets.only(right: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.green.shade50,
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: Colors.green.shade200),
+                          ),
+                          child: Text('FREE', style: TextStyle(fontSize: 8, color: Colors.green.shade700, fontWeight: FontWeight.bold)),
+                        ),
+                        Text('$offerQty', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.green.shade700)),
+                      ]),
+                  ]),
+                ]),
+              ),
+            );
+          }),
         ]),
       ),
     );

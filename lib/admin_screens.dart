@@ -812,6 +812,7 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
     'Cardiologist',
     'Dermatologist',
     'ENT Specialist',
+    'Dentist',
     'Other',
   ];
   String _selectedSpecialization = 'Orthopedic Surgeon';
@@ -2747,14 +2748,46 @@ class _AdminOrderDetailDialog extends StatelessWidget {
             ),
           const SizedBox(height: 12),
           const Divider(),
-          ...items.map((item) => ListTile(
-            dense: true,
-            leading: const Icon(Icons.medication, color: Color(0xFF1565C0)),
-            title: Text(item['productName'] ?? ''),
-            subtitle: Text('₹${item['price'] ?? 'N/A'}'),
-            trailing: Text('×${item['quantity']}',
-                style: const TextStyle(fontWeight: FontWeight.bold)),
-          )),
+          ...items.map((item) {
+            final offerQty = (item['offerQty'] as num?)?.toInt() ?? 0;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(children: [
+                const Icon(Icons.medication, color: Color(0xFF1565C0), size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(item['productName'] ?? '',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    if ((item['mrp'] ?? '').toString().isNotEmpty)
+                      Text('MRP: ₹${item['mrp']}  PTR: ₹${item['ptr']}  PTS: ₹${item['pts']}',
+                          style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
+                  ]),
+                ),
+                Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                  Row(children: [
+                    Text('Qty: ', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                    Text('${item['quantity']}',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1565C0))),
+                  ]),
+                  if (offerQty > 0)
+                    Row(children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                        margin: const EdgeInsets.only(right: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.green.shade50,
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: Colors.green.shade200),
+                        ),
+                        child: Text('FREE', style: TextStyle(fontSize: 8, color: Colors.green.shade700, fontWeight: FontWeight.bold)),
+                      ),
+                      Text('$offerQty', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.green.shade700)),
+                    ]),
+                ]),
+              ]),
+            );
+          }),
           const Divider(),
           if (data['remarks'] != null && data['remarks'].toString().isNotEmpty)
             Padding(
