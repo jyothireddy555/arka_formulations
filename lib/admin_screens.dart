@@ -4621,7 +4621,36 @@ class _AddProductScreenState extends State<AddProductScreen> {
       } else {
         data['createdAt'] = FieldValue.serverTimestamp();
         data['createdBy'] = _auth.currentUser!.uid;
-        await _db.collection('products').add(data);
+        final newProductRef = await _db.collection('products').add(data);
+
+        // Propagate new product (qty=0) to ALL stockists.
+        // Use a single-field query (no composite index needed) and
+        // filter isActive on the client side.
+        final stockistsSnap = await _db
+            .collection('users')
+            .where('role', isEqualTo: 'stockist')
+            .get();
+
+        final activeDocs = stockistsSnap.docs.where((d) {
+          final isActive = (d.data() as Map<String, dynamic>)['isActive'];
+          return isActive == true || isActive == null; // treat missing as active
+        }).toList();
+
+        if (activeDocs.isNotEmpty) {
+          final batch = _db.batch();
+          for (final stockistDoc in activeDocs) {
+            final stockRef = _db
+                .collection('stockist_stock')
+                .doc(stockistDoc.id);
+            // SetOptions(merge: true) keeps existing quantities intact
+            batch.set(
+              stockRef,
+              {newProductRef.id: 0},
+              SetOptions(merge: true),
+            );
+          }
+          await batch.commit();
+        }
       }
 
       if (mounted) {

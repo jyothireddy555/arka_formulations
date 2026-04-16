@@ -823,45 +823,115 @@ class _StockistProductCard extends StatelessWidget {
     final div   = data['division'] ?? 'General';
     final color = _divColor(div);
 
+    String _price(String label, dynamic val) {
+      if (val == null || val.toString().isEmpty) return '—';
+      return '₹$val';
+    }
+
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      elevation: 1.5,
       child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(children: [
-          Container(
-            width: 46,
-            height: 46,
-            decoration: BoxDecoration(
-                color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
-            child: Icon(Icons.medication, color: color),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(data['name'] ?? '',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-              Text('Code: ${data['code'] ?? 'N/A'}',
-                  style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
-              const SizedBox(height: 4),
-              Row(children: [
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Name + division badge ───────────────────────────────
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  width: 42, height: 42,
                   decoration: BoxDecoration(
-                      color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(20)),
-                  child: Text(div,
-                      style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w600)),
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(Icons.medication, color: color, size: 22),
                 ),
-                const SizedBox(width: 8),
-                Text('MRP: ₹${data['mrp'] ?? data['price'] ?? '0'} | ${data['packSize'] ?? 'N/A'}',
-                    style: TextStyle(color: Colors.grey.shade500, fontSize: 11)),
-              ]),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(data['name'] ?? '',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: 14)),
+                      Row(children: [
+                        if ((data['code'] ?? '').toString().isNotEmpty)
+                          Text(data['code'].toString(),
+                              style: TextStyle(
+                                  fontSize: 11, color: Colors.grey.shade600)),
+                        if ((data['code'] ?? '').toString().isNotEmpty &&
+                            (data['category'] ?? '').toString().isNotEmpty)
+                          Text(' • ',
+                              style:
+                                  TextStyle(color: Colors.grey.shade400)),
+                        Text(data['category'] ?? '',
+                            style: TextStyle(
+                                fontSize: 11, color: Colors.grey.shade600)),
+                        if ((data['packSize'] ?? '').toString().isNotEmpty)
+                          Text(' • ${data['packSize']}',
+                              style: TextStyle(
+                                  fontSize: 11, color: Colors.grey.shade500)),
+                      ]),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: color.withOpacity(0.3)),
+                  ),
+                  child: Text(div,
+                      style: TextStyle(
+                          fontSize: 10,
+                          color: color,
+                          fontWeight: FontWeight.w600)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            // ── Pricing chips ───────────────────────────────────────
+            Row(children: [
+              _chip('MRP', _price('MRP', data['mrp']), Colors.indigo),
+              const SizedBox(width: 8),
+              _chip('PTR', _price('PTR', data['ptr']), Colors.teal),
+              const SizedBox(width: 8),
+              _chip('PTS', _price('PTS', data['pts']), Colors.orange),
             ]),
-          ),
-        ]),
+          ],
+        ),
       ),
     );
   }
+
+  Widget _chip(String label, String value, Color color) => Expanded(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.07),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: color.withOpacity(0.2)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label,
+                  style:
+                      TextStyle(fontSize: 9, color: Colors.grey.shade500)),
+              Text(value,
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: color)),
+            ],
+          ),
+        ),
+      );
 }
 
 // ─────────────────────────────────────────
@@ -876,13 +946,16 @@ class StockistReportLowStockScreen extends StatefulWidget {
 }
 
 class _StockistReportLowStockScreenState extends State<StockistReportLowStockScreen> {
-  final _notesCtrl = TextEditingController();
+  final _notesCtrl  = TextEditingController();
+  final _searchCtrl = TextEditingController();
   final Map<String, String> _stockStatus = {};
+  String _searchQuery = '';
   bool _submitting = false;
 
   @override
   void dispose() {
     _notesCtrl.dispose();
+    _searchCtrl.dispose();
     super.dispose();
   }
 
@@ -933,6 +1006,35 @@ class _StockistReportLowStockScreenState extends State<StockistReportLowStockScr
     return Scaffold(
       appBar: AppBar(title: const Text('Report Low / Out-of-Stock')),
       body: Column(children: [
+        // ── Search bar ────────────────────────────────────────────────
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+          child: TextField(
+            controller: _searchCtrl,
+            onChanged: (v) => setState(() => _searchQuery = v.toLowerCase().trim()),
+            decoration: InputDecoration(
+              hintText: 'Search products...',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: _searchQuery.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        _searchCtrl.clear();
+                        setState(() => _searchQuery = '');
+                      },
+                    )
+                  : null,
+              filled: true,
+              fillColor: Colors.grey.shade100,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
             stream: db.collection('products').orderBy('name').snapshots(),
@@ -940,7 +1042,16 @@ class _StockistReportLowStockScreenState extends State<StockistReportLowStockScr
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
               }
-              final products = snapshot.data?.docs ?? [];
+              final allProducts = snapshot.data?.docs ?? [];
+              // Filter by search query client-side
+              final products = _searchQuery.isEmpty
+                  ? allProducts
+                  : allProducts.where((p) {
+                      final name = ((p.data() as Map<String, dynamic>)['name'] ?? '')
+                          .toString()
+                          .toLowerCase();
+                      return name.contains(_searchQuery);
+                    }).toList();
 
               return ListView(padding: const EdgeInsets.all(16), children: [
                 Container(
@@ -962,6 +1073,17 @@ class _StockistReportLowStockScreenState extends State<StockistReportLowStockScr
                     ),
                   ]),
                 ),
+                if (products.isEmpty) ...[                  
+                  const SizedBox(height: 40),
+                  Center(
+                    child: Column(children: [
+                      Icon(Icons.search_off, size: 56, color: Colors.grey.shade300),
+                      const SizedBox(height: 12),
+                      Text('No products match "$_searchQuery"',
+                          style: TextStyle(color: Colors.grey.shade500)),
+                    ]),
+                  ),
+                ] else
                 ...products.map((p) {
                   final data   = p.data() as Map<String, dynamic>;
                   final status = _stockStatus[p.id];

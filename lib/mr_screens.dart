@@ -361,7 +361,7 @@ class _MrDashboardScreenState extends State<MrDashboardScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Total Commission Earned',
+                  const Text('Total Incentives',
                       style: TextStyle(fontWeight: FontWeight.w600)),
                   Text('₹${_totalCommission.toStringAsFixed(0)}',
                       style: const TextStyle(
@@ -1323,12 +1323,12 @@ class DoctorOrderSummaryScreen extends StatelessWidget {
       appBar: AppBar(
         title: Text(doctorName),
       ),
-      body: FutureBuilder<QuerySnapshot>(
-        future: FirebaseFirestore.instance
+      body: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
             .collection('orders')
             .where('doctorId', isEqualTo: doctorId)
-            .where('status', isEqualTo: 'delivered')
-            .get(),
+            .where('status', whereIn: ['approved', 'dispatched', 'delivered'])
+            .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
@@ -1351,9 +1351,15 @@ class DoctorOrderSummaryScreen extends StatelessWidget {
                       size: 80, color: Colors.grey.shade300),
                   const SizedBox(height: 16),
                   Text(
-                    'No delivered orders yet',
+                    'No approved orders yet',
                     style: TextStyle(
                         color: Colors.grey.shade500, fontSize: 16),
+                  ),
+                  Text(
+                    'Orders appear here once accepted by the stockist',
+                    style: TextStyle(
+                        color: Colors.grey.shade400, fontSize: 12),
+                    textAlign: TextAlign.center,
                   ),
                 ],
               ),
@@ -2094,31 +2100,124 @@ class _MrProductsScreenState extends State<MrProductsScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 itemCount: products.length,
                 itemBuilder: (context, index) {
-                  final data      = products[index].data() as Map<String, dynamic>;
-                  final stock     = _selectedStockistUid != null ? (_stockistStockData[products[index].id] ?? 0) : (data['stock'] as num?)?.toInt() ?? 0;
-                  final minStock  = (data['minStock'] as num?)?.toInt() ?? 10;
-                  final division  = data['division'] ?? 'General';
-                  final isOutOfStock = stock == 0;
-                  final isLowStock   = stock > 0 && stock <= minStock;
+                  final data     = products[index].data() as Map<String, dynamic>;
+                  final division = data['division'] ?? 'General';
                   Color color;
                   switch (division) {
                     case 'Ortho': color = Colors.blue; break;
                     case 'Gynec': color = Colors.pink; break;
                     default:      color = Colors.green;
                   }
-                  Color  stockColor = Colors.green;
-                  String stockLabel = 'Available';
-                  if (isOutOfStock) { stockColor = Colors.red;    stockLabel = 'Out of Stock'; }
-                  else if (isLowStock) { stockColor = Colors.orange; stockLabel = 'Low Stock'; }
                   return Card(
                     margin: const EdgeInsets.only(bottom: 10),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    child: ListTile(
-                      leading: Container(width: 44, height: 44, decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(8)), child: Icon(Icons.medication, color: color)),
-                      title: Text(data['name'] ?? 'Unknown', style: const TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: Text('${data['packSize'] ?? ''} • ₹${data['price'] ?? 'N/A'}\n$division'),
-                      isThreeLine: true,
-                      trailing: null,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    elevation: 1.5,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // ── Name + division chip ────────────────────────
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: 40, height: 40,
+                                decoration: BoxDecoration(
+                                  color: color.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Icon(Icons.medication, color: color, size: 22),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      data['name'] ?? 'Unknown',
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14),
+                                    ),
+                                    Row(children: [
+                                      if ((data['code'] ?? '').toString().isNotEmpty)
+                                        Text('${data['code']}',
+                                            style: TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.grey.shade600)),
+                                      if ((data['code'] ?? '').toString().isNotEmpty &&
+                                          (data['category'] ?? '').toString().isNotEmpty)
+                                        Text(' • ', style: TextStyle(color: Colors.grey.shade400)),
+                                      Text(data['category'] ?? '',
+                                          style: TextStyle(
+                                              fontSize: 11,
+                                              color: Colors.grey.shade600)),
+                                    ]),
+                                  ],
+                                ),
+                              ),
+                              // Division badge
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: color.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                      color: color.withOpacity(0.3)),
+                                ),
+                                child: Text(division,
+                                    style: TextStyle(
+                                        fontSize: 10,
+                                        color: color,
+                                        fontWeight: FontWeight.w600)),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          // ── Pricing row ─────────────────────────────────
+                          Row(
+                            children: [
+                              _priceChip('MRP', data['mrp']),
+                              const SizedBox(width: 8),
+                              _priceChip('PTR', data['ptr']),
+                              const SizedBox(width: 8),
+                              _priceChip('PTS', data['pts']),
+                              if ((data['packSize'] ?? '').toString().isNotEmpty) ...[
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 5),
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey.shade100,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text('Pack',
+                                            style: TextStyle(
+                                                fontSize: 9,
+                                                color: Colors.grey.shade500)),
+                                        Text(
+                                          data['packSize'].toString(),
+                                          style: const TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w600),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   );
                 },
@@ -2127,6 +2226,32 @@ class _MrProductsScreenState extends State<MrProductsScreen> {
           ),
         ),
       ]),
+    );
+  }
+
+  Widget _priceChip(String label, dynamic value) {
+    final display = (value == null || value.toString().isEmpty)
+        ? '—'
+        : '₹${value}';
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        decoration: BoxDecoration(
+          color: Colors.blue.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.blue.shade100),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label,
+                style: TextStyle(fontSize: 9, color: Colors.grey.shade500)),
+            Text(display,
+                style: const TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.bold)),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -2308,12 +2433,13 @@ Future<void> _loadStockists() async {
   String _dateKey(DateTime dt) =>
       '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
 
-  // ── Calculate order value and display tier only (for UI preview) ──
-  (int orderValue, String tier) _calculateOrderDetails(Map<String, int> quantities) {
-    int totalValue = 0;
+  // ── Calculate order value (PTR-based, decimal-accurate) ──
+  (double orderValue, String tier) _calculateOrderDetails(Map<String, int> quantities) {
+    double totalValue = 0.0;
     for (final entry in quantities.entries.where((e) => e.value > 0)) {
       final product = _productCache[entry.key];
-      final price = num.tryParse(product?['price']?.toString() ?? '0')?.toInt() ?? 0;
+      // PTR = Price to Retailer — used as the basis for order value
+      final price = num.tryParse(product?['ptr']?.toString() ?? '0')?.toDouble() ?? 0.0;
       totalValue += price * entry.value;
     }
     String tier = 'Normal';
@@ -2346,10 +2472,13 @@ Future<void> _loadStockists() async {
     }
 
     final orderItems = _quantities.entries.where((e) => e.value > 0).map((e) => {
-      'productId': e.key,
+      'productId':   e.key,
       'productName': _productCache[e.key]?['name'] ?? '',
-      'quantity': e.value,
-      'price': _productCache[e.key]?['price'] ?? 0,
+      'quantity':    e.value,
+      'mrp':         _productCache[e.key]?['mrp'] ?? '',
+      'ptr':         _productCache[e.key]?['ptr'] ?? '',
+      'pts':         _productCache[e.key]?['pts'] ?? '',
+      'packSize':    _productCache[e.key]?['packSize'] ?? '',
     }).toList();
 
     if (orderItems.isEmpty) {
@@ -2429,7 +2558,7 @@ Future<void> _loadStockists() async {
         'remarks': _remarksCtrl.text.trim(),
         'status': 'pending',
         'date': today,
-        'orderValue': orderValue,
+        'orderValue': double.parse(orderValue.toStringAsFixed(2)),
         'tier': earnedTier,
         'commission': earnedCommission,   // ← uses earnedCommission, no collision
         'createdAt': FieldValue.serverTimestamp(),
@@ -2438,8 +2567,13 @@ Future<void> _loadStockists() async {
       // Update doctor stats
       final doctorRef = db.collection('doctors').doc(_selectedDoctorId);
       final doctorDoc = await doctorRef.get();
-      final currentTotal = (doctorDoc.data() as Map<String, dynamic>?)?['totalOrderValue'] ?? 0;
-      await doctorRef.update({'totalOrderValue': currentTotal + orderValue, 'tier': tier, 'lastOrderDate': today});
+      final currentTotal = (doctorDoc.data() as Map<String, dynamic>?)?['totalOrderValue'];
+      final prevTotal = (currentTotal is num) ? currentTotal.toDouble() : 0.0;
+      await doctorRef.update({
+        'totalOrderValue': double.parse((prevTotal + orderValue).toStringAsFixed(2)),
+        'tier': tier,
+        'lastOrderDate': today,
+      });
 
       // Save allowance record only if a new tier was unlocked
       if (earnedCommission > 0) {
@@ -2452,7 +2586,7 @@ Future<void> _loadStockists() async {
           'stockistName': _selectedStockistName,
           'stockistUid': stockistUid,
           'orderId': orderRef.id,
-          'orderValue': orderValue,
+          'orderValue': double.parse(orderValue.toStringAsFixed(2)),
           'amount': earnedCommission,
           'tier': earnedTier,
           'orderDate': today,
@@ -2467,8 +2601,8 @@ Future<void> _loadStockists() async {
         'mrId': uid,
         'title': '🕐 Order Sent for Approval',
         'body': earnedCommission > 0
-            ? 'Order worth ₹$orderValue sent to $_selectedStockistName. +₹$earnedCommission $earnedTier bonus unlocked!'
-            : 'Order worth ₹$orderValue sent to $_selectedStockistName. Awaiting approval.',
+            ? 'Order worth ₹${orderValue.toStringAsFixed(2)} sent to $_selectedStockistName. +₹$earnedCommission $earnedTier bonus unlocked!'
+            : 'Order worth ₹${orderValue.toStringAsFixed(2)} sent to $_selectedStockistName. Awaiting approval.',
         'type': 'order_pending',
         'isRead': false,
         'createdAt': FieldValue.serverTimestamp(),
@@ -2479,7 +2613,7 @@ Future<void> _loadStockists() async {
         await db.collection('notifications').add({
           'mrId': stockistUid,
           'title': '📦 New Order Received',
-          'body': 'New order from $mrName for ₹$orderValue. Please review and approve.',
+          'body': 'New order from $mrName for ₹${orderValue.toStringAsFixed(2)}. Please review and approve.',
           'type': 'new_order',
           'orderId': orderRef.id,
           'isRead': false,
@@ -2696,10 +2830,26 @@ Future<void> _loadStockists() async {
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                             child: Row(children: [
                               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                Text(data['name'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold)),
-                                const SizedBox(height: 2),
-                                Text('₹${data['price'] ?? 'N/A'} • ${data['packSize'] ?? ''}', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                                Text(data['name'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                                 const SizedBox(height: 4),
+                                Row(children: [
+                                  _orderPriceChip('MRP', data['mrp']),
+                                  const SizedBox(width: 5),
+                                  _orderPriceChip('PTR', data['ptr']),
+                                  const SizedBox(width: 5),
+                                  _orderPriceChip('PTS', data['pts']),
+                                  if ((data['packSize'] ?? '').toString().isNotEmpty) ...[
+                                    const SizedBox(width: 5),
+                                    Expanded(
+                                      child: Text(
+                                        data['packSize'].toString(),
+                                        style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ]),
+                                const SizedBox(height: 2),
                               ])),
                               Row(children: [
                                 IconButton(
@@ -2797,7 +2947,7 @@ Future<void> _loadStockists() async {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                      Text('Order Value: ₹$orderValue', style: const TextStyle(fontWeight: FontWeight.w600)),
+                      Text('Order Value: ₹${orderValue.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.w600)),
                       if (tier != 'Normal')
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -2823,6 +2973,26 @@ Future<void> _loadStockists() async {
               ]),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _orderPriceChip(String label, dynamic value) {
+    final display = (value == null || value.toString().isEmpty) ? '—' : '₹$value';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.blue.shade100),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label, style: TextStyle(fontSize: 8, color: Colors.grey.shade500)),
+          Text(display, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
         ],
       ),
     );
