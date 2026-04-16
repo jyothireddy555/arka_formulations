@@ -148,8 +148,8 @@ class _AdminMrVisitHistoryScreenState
 
   Color _divisionColor(String div) {
     switch (div) {
-      case 'Ortho':  return Colors.blue;
-      case 'Gynec':  return Colors.pink;
+      case 'Osteon': return Colors.blue;
+      case 'Ceflon': return Colors.teal;
       default:       return Colors.green;
     }
   }
@@ -650,10 +650,10 @@ class _AdminMrVisitHistoryScreenState
 
     showDialog(
       context: context,
-      builder: (_) => Dialog(
+      builder: (_) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
+        contentPadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+        content: SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             const Icon(Icons.account_balance_wallet,
                 color: Color(0xFF1565C0), size: 40),
@@ -683,7 +683,7 @@ class _AdminMrVisitHistoryScreenState
             _summaryRow('Core visits',       '$coreVisits',      Colors.teal),
             _summaryRow('Super Core visits', '$superCoreVisits', Colors.orange),
             _summaryRow('Premium visits',    '$premiumVisits',   Colors.purple),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -691,11 +691,10 @@ class _AdminMrVisitHistoryScreenState
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: Colors.blue.shade200),
               ),
-              child: Row(children: [
-                const Icon(Icons.info_outline,
-                    color: Colors.blue, size: 16),
-                const SizedBox(width: 8),
-                const Expanded(
+              child: const Row(children: [
+                Icon(Icons.info_outline, color: Colors.blue, size: 16),
+                SizedBox(width: 8),
+                Expanded(
                   child: Text(
                     'Use these numbers alongside the fixed allowance to compute the final salary.',
                     style: TextStyle(fontSize: 11, color: Colors.blue),
@@ -703,16 +702,15 @@ class _AdminMrVisitHistoryScreenState
                 ),
               ]),
             ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Close'),
-              ),
-            ),
           ]),
         ),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
       ),
     );
   }

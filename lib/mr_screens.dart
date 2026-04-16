@@ -374,34 +374,46 @@ class _MrDashboardScreenState extends State<MrDashboardScreen> {
             const Text('Quick Actions',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
-            GridView.count(
-              crossAxisCount: 2,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisSpacing: 12, mainAxisSpacing: 12,
-              childAspectRatio: 1.5,
-              children: [
-                _quickAction(context, 'Visit Doctor', Icons.add_location, Colors.blue, () {
-                  final nav = context.findAncestorStateOfType<_MrMainScreenState>();
-                  nav?.setState(() => nav._currentIndex = 1);
-                }),
-                _quickAction(context, 'Place Order', Icons.add_shopping_cart, Colors.green, () {
-                  Navigator.push(context,
-                      MaterialPageRoute(builder: (_) => const MrPlaceOrderScreen()));
-                }),
-                _quickAction(context, 'Daily Report', Icons.edit_note, Colors.orange, () {
-                  Navigator.push(context,
-                      MaterialPageRoute(builder: (_) => const MrSubmitReportScreen()));
-                }),
-                _quickAction(context, 'Apply Leave', Icons.event_busy, Colors.red, () {
-                  Navigator.push(context,
-                      MaterialPageRoute(builder: (_) => const MrApplyLeaveScreen()));
-                }),
-                _quickAction(context, 'Add Doctor', Icons.person_add, Colors.teal, () {
-                  Navigator.push(context,
-                      MaterialPageRoute(builder: (_) => const MrAddDoctorScreen()));
-                }),
-              ],
+            LayoutBuilder(
+              builder: (context, constraints) {
+                return GridView.count(
+                  crossAxisCount: 2,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisSpacing: 12, mainAxisSpacing: 12,
+                  childAspectRatio: 1.5,
+                  children: [
+                    _quickAction(context, 'Visit Doctor', Icons.add_location, Colors.blue, () {
+                      final nav = context.findAncestorStateOfType<_MrMainScreenState>();
+                      nav?.setState(() => nav._currentIndex = 1);
+                    }),
+                    _quickAction(context, 'Place Order', Icons.add_shopping_cart, Colors.green, () {
+                      Navigator.push(context,
+                          MaterialPageRoute(builder: (_) => const MrPlaceOrderScreen()));
+                    }),
+                    _quickAction(context, 'Daily Report', Icons.edit_note, Colors.orange, () {
+                      Navigator.push(context,
+                          MaterialPageRoute(builder: (_) => const MrSubmitReportScreen()));
+                    }),
+                    _quickAction(context, 'Apply Leave', Icons.event_busy, Colors.red, () {
+                      Navigator.push(context,
+                          MaterialPageRoute(builder: (_) => const MrApplyLeaveScreen()));
+                    }),
+                    _quickAction(context, 'Add Doctor', Icons.person_add, Colors.teal, () {
+                      Navigator.push(context,
+                          MaterialPageRoute(builder: (_) => const MrAddDoctorScreen()));
+                    }),
+                    _quickAction(context, 'New Conversion', Icons.trending_up, Colors.purple, () {
+                      Navigator.push(context,
+                          MaterialPageRoute(builder: (_) => const MrConversionRequestScreen()));
+                    }),
+                    _quickAction(context, 'Conversions History', Icons.history_edu, Colors.indigo, () {
+                      Navigator.push(context,
+                          MaterialPageRoute(builder: (_) => const MrConversionHistoryScreen()));
+                    }),
+                  ],
+                );
+              },
             ),
             const SizedBox(height: 20),
 
@@ -510,15 +522,11 @@ class _MrAddDoctorScreenState extends State<MrAddDoctorScreen> {
   final _licence20bController = TextEditingController();
   final _licence21bController = TextEditingController();
   final _gstController        = TextEditingController();
-
-  String _selectedDivision = 'Ortho';
   double? _latitude;
   double? _longitude;
   bool _isLoading = false;
   bool _isFetchingLocation = false;
   String _errorMessage = '';
-
-  final List<String> _divisions = ['Ortho', 'Gynec', 'General'];
   final List<String> _specializations = [
     'Orthopedic Surgeon',
     'Gynecologist',
@@ -594,7 +602,7 @@ class _MrAddDoctorScreenState extends State<MrAddDoctorScreen> {
         'licence20b': _licence20bController.text.trim(),
         'licence21b': _licence21bController.text.trim(),
         'gst':        _gstController.text.trim(),
-        'division': _selectedDivision,
+        'division':   'General',
         'latitude': _latitude,
         'longitude': _longitude,
         'tier': 'Normal',
@@ -716,14 +724,6 @@ class _MrAddDoctorScreenState extends State<MrAddDoctorScreen> {
               prefixIcon: Icon(Icons.receipt_long_outlined),
             ),
           ),
-          const SizedBox(height: 14),
-          _label('Division'),
-          DropdownButtonFormField<String>(
-            value: _selectedDivision,
-            decoration: const InputDecoration(prefixIcon: Icon(Icons.category_outlined)),
-            items: _divisions.map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
-            onChanged: (val) => setState(() => _selectedDivision = val!),
-          ),
           const SizedBox(height: 20),
           _label('Doctor\'s Location'),
           const SizedBox(height: 6),
@@ -800,8 +800,6 @@ class MrDoctorsScreen extends StatefulWidget {
 
 class _MrDoctorsScreenState extends State<MrDoctorsScreen> {
   String       _search    = '';
-  String       _filterDiv = 'All';
-  final List<String> _divisions = ['All', 'Ortho', 'Gynec', 'General'];
 
   @override
   Widget build(BuildContext context) {
@@ -817,22 +815,6 @@ class _MrDoctorsScreenState extends State<MrDoctorsScreen> {
       ),
 
       body: Column(children: [
-        Container(
-          width: double.infinity,
-          margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: Colors.blue.shade50,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.blue.shade200),
-          ),
-          child: const Row(children: [
-            Icon(Icons.info_outline, color: Colors.blue, size: 16),
-            SizedBox(width: 8),
-            Expanded(child: Text('You must be within 200 m of the doctor\'s location to check in.', style: TextStyle(fontSize: 12, color: Colors.blue))),
-          ]),
-        ),
-        const SizedBox(height: 8),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: TextField(
@@ -844,29 +826,6 @@ class _MrDoctorsScreenState extends State<MrDoctorsScreen> {
             ),
           ),
         ),
-        const SizedBox(height: 8),
-        SizedBox(
-          height: 40,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            itemCount: _divisions.length,
-            itemBuilder: (_, i) {
-              final d = _divisions[i];
-              return Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: FilterChip(
-                  label: Text(d),
-                  selected: _filterDiv == d,
-                  onSelected: (_) => setState(() => _filterDiv = d),
-                  selectedColor: const Color(0xFF1565C0).withOpacity(0.2),
-                  checkmarkColor: const Color(0xFF1565C0),
-                ),
-              );
-            },
-          ),
-        ),
-        const SizedBox(height: 8),
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
             stream: db.collection('doctors').orderBy('name').snapshots(),
@@ -894,11 +853,9 @@ class _MrDoctorsScreenState extends State<MrDoctorsScreen> {
                 final data   = d.data() as Map<String, dynamic>;
                 final active = data['isActive'] as bool? ?? true;
                 final name   = (data['name'] ?? '').toString().toLowerCase();
-                final div    = (data['division'] ?? '').toString();
                 final hospital = (data['hospital'] ?? '').toString().toLowerCase();
                 return active &&
-                    (_search.isEmpty || name.contains(_search) || hospital.contains(_search)) &&
-                    (_filterDiv == 'All' || div == _filterDiv);
+                    (_search.isEmpty || name.contains(_search) || hospital.contains(_search));
               }).toList();
               if (docs.isEmpty) return Center(child: Text('No doctors match your filter.', style: TextStyle(color: Colors.grey.shade500)));
               return ListView.builder(
@@ -997,9 +954,26 @@ class _MrDoctorCardState extends State<_MrDoctorCard> {
       }
       final uid = auth.currentUser!.uid;
       final today = _dateKey(DateTime.now());
-      final existing = await db.collection('visits').where('mrId', isEqualTo: uid).where('doctorId', isEqualTo: widget.docId).where('date', isEqualTo: today).get();
-      if (existing.docs.isNotEmpty) {
-        _showMsg('Already checked in with this doctor today.', Colors.orange);
+      final allVisitsToday = await db.collection('visits').where('mrId', isEqualTo: uid).where('date', isEqualTo: today).get();
+      DateTime? latestCheckIn;
+      for (final doc in allVisitsToday.docs) {
+        final data = doc.data();
+        if (data['doctorId'] == widget.docId) {
+          _showMsg('Already checked in with this doctor today.', Colors.orange);
+          if (mounted) setState(() => _checking = false);
+          return;
+        }
+        final t = data['timestamp'] as Timestamp?;
+        if (t != null) {
+          final dt = t.toDate();
+          if (latestCheckIn == null || dt.isAfter(latestCheckIn)) latestCheckIn = dt;
+        }
+      }
+      
+      if (latestCheckIn != null && DateTime.now().difference(latestCheckIn).inMinutes < 10) {
+        final waitTime = 10 - DateTime.now().difference(latestCheckIn).inMinutes;
+        _showMsg('Please wait $waitTime more minute(s) before checking into another doctor.', Colors.red);
+        if (mounted) setState(() => _checking = false);
         return;
       }
       _activeCheckInDoctorId = widget.docId;
@@ -1613,14 +1587,12 @@ class _MrEditDoctorScreenState extends State<MrEditDoctorScreen> {
   late final TextEditingController _licence21bController;
   late final TextEditingController _gstController;
 
-  late String _selectedDivision;
   late String _selectedSpecialization;
   late final double? _latitude;
   late final double? _longitude;
   bool _isLoading = false;
   String _errorMessage = '';
 
-  final List<String> _divisions = ['Ortho', 'Gynec', 'General'];
   final List<String> _specializations = [
     'Orthopedic Surgeon', 'Gynecologist', 'General Physician',
     'Pediatrician', 'Cardiologist', 'Dermatologist', 'ENT Specialist', 'Other',
@@ -1638,7 +1610,6 @@ class _MrEditDoctorScreenState extends State<MrEditDoctorScreen> {
     _licence20bController = TextEditingController(text: d['licence20b'] ?? '');
     _licence21bController = TextEditingController(text: d['licence21b'] ?? '');
     _gstController        = TextEditingController(text: d['gst']        ?? '');
-    _selectedDivision       = d['division']       ?? 'Ortho';
     _selectedSpecialization = d['specialization'] ?? 'Orthopedic Surgeon';
     _latitude               = (d['latitude']  as num?)?.toDouble();
     _longitude              = (d['longitude'] as num?)?.toDouble();
@@ -1689,7 +1660,6 @@ class _MrEditDoctorScreenState extends State<MrEditDoctorScreen> {
         'hospital':       hospital,
         'area':           area,
         'address':        _addressController.text.trim(),
-        'division':       _selectedDivision,
         'contact':        _contactController.text.trim(),
         'licence20b':     _licence20bController.text.trim(),
         'licence21b':     _licence21bController.text.trim(),
@@ -1831,19 +1801,6 @@ class _MrEditDoctorScreenState extends State<MrEditDoctorScreen> {
               prefixIcon: Icon(Icons.receipt_long_outlined),
             ),
           ),
-          const SizedBox(height: 14),
-
-          _label('Division'),
-          DropdownButtonFormField<String>(
-            value: _selectedDivision,
-            decoration: const InputDecoration(
-              prefixIcon: Icon(Icons.category_outlined),
-            ),
-            items: _divisions
-                .map((d) => DropdownMenuItem(value: d, child: Text(d)))
-                .toList(),
-            onChanged: (val) => setState(() => _selectedDivision = val!),
-          ),
           const SizedBox(height: 20),
 
           // ── Location — view only, no editing for MR ──────────────
@@ -1977,7 +1934,7 @@ class _MrProductsScreenState extends State<MrProductsScreen> {
     _loadStockists();
   }
 
-  Future<void> _loadStockists() async {
+ Future<void> _loadStockists() async {
     try {
       final uid = auth.currentUser!.uid;
 
@@ -2005,10 +1962,22 @@ class _MrProductsScreenState extends State<MrProductsScreen> {
               'id': d.id,
               'uid': d.id,
               'name': data['name'] ?? 'Unknown',
+              'city': data['city'] ?? '',
             };
           }).toList();
           _loadingStockists = false;
+
+          // Auto-select if only one stockist
+          if (_stockists.length == 1) {
+            _selectedStockistUid = _stockists[0]['uid'] as String;
+            _selectedStockistName = _stockists[0]['name'] as String;
+          }
         });
+
+        // Auto-load stock for the single stockist
+        if (_stockists.length == 1) {
+          _loadStockistStock(_stockists[0]['uid'] as String);
+        }
       }
     } catch (e) {
       if (mounted) setState(() => _loadingStockists = false);
@@ -2210,7 +2179,7 @@ class _MrPlaceOrderScreenState extends State<MrPlaceOrderScreen> {
     _loadData();
   }
 
-  Future<void> _loadStockists() async {
+Future<void> _loadStockists() async {
     try {
       final uid = auth.currentUser!.uid;
 
@@ -2238,11 +2207,21 @@ class _MrPlaceOrderScreenState extends State<MrPlaceOrderScreen> {
               'id': d.id,
               'uid': d.id,
               'name': data['name'] ?? 'Unknown',
-              'city': data['city'] ?? '',
             };
           }).toList();
           _loadingStockists = false;
+
+          // Auto-select if only one stockist
+          if (_stockists.length == 1) {
+            _selectedStockistId = _stockists[0]['uid'] as String;
+            _selectedStockistName = _stockists[0]['name'] as String;
+          }
         });
+
+        // Auto-load products for the single stockist
+        if (_stockists.length == 1) {
+          _loadProductsForStockist(_stockists[0]['uid'] as String);
+        }
       }
     } catch (e) {
       if (mounted) setState(() => _loadingStockists = false);
@@ -3557,7 +3536,7 @@ class MrAllowanceScreen extends StatelessWidget {
                       const Text('per month', style: TextStyle(color: Colors.white70, fontSize: 12)),
                       const Divider(color: Colors.white30, height: 28),
                       Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-                        _summaryPill('Total Bonus', '₹${totalCommission.toStringAsFixed(0)}', Colors.white),
+                        _summaryPill('Total Incentive', '₹${totalCommission.toStringAsFixed(0)}', Colors.white),
                         _summaryPill('Records', '${docs.length}', Colors.white),
                       ]),
                     ]),
@@ -3567,15 +3546,17 @@ class MrAllowanceScreen extends StatelessWidget {
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey.shade200)),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      const Text('Bonus Structure (one-time per tier)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      const Text('Incentive Structure (one-time per tier)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                       const SizedBox(height: 8),
-                      Row(children: [
-                        _tierLegend('Core',       '₹5k–10k',  '+₹500',   Colors.teal),
-                        const SizedBox(width: 8),
-                        _tierLegend('Super Core', '₹10k–15k', '+₹1,000', Colors.orange),
-                        const SizedBox(width: 8),
-                        _tierLegend('Premium',    '₹15k+',    '+₹1,500', Colors.purple),
-                      ]),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _tierLegend('Core',       '₹5k–10k',  '+₹500',   Colors.teal),
+                          _tierLegend('Super Core', '₹10k–15k', '+₹1,000', Colors.orange),
+                          _tierLegend('Premium',    '₹15k+',    '+₹1,500', Colors.purple),
+                        ],
+                      ),
                     ]),
                   ),
                   const SizedBox(height: 20),
@@ -3606,7 +3587,6 @@ class MrAllowanceScreen extends StatelessWidget {
                       final orderVal  = (d['orderValue'] as num?)?.toInt() ?? 0;
                       final docName   = d['doctorName'] as String? ?? 'N/A';
                       final orderDate = d['orderDate'] as String? ?? '';
-                      final isPending = d['pending'] as bool? ?? true;
                       return Card(
                         margin: const EdgeInsets.only(bottom: 10),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -3622,7 +3602,12 @@ class MrAllowanceScreen extends StatelessWidget {
                               Text(docName, style: TextStyle(color: Colors.grey.shade700, fontSize: 13)),
                               const SizedBox(height: 4),
                               Row(children: [
-                                Text('Deal: ₹$orderVal', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                                Flexible(
+                                  child: Text('Deal: ₹$orderVal', 
+                                    style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
                                 const SizedBox(width: 8),
                                 if (tier != 'Normal')
                                   Container(
@@ -3630,12 +3615,6 @@ class MrAllowanceScreen extends StatelessWidget {
                                     decoration: BoxDecoration(color: tColor.withOpacity(0.1), borderRadius: BorderRadius.circular(10), border: Border.all(color: tColor.withOpacity(0.4))),
                                     child: Text(tier, style: TextStyle(color: tColor, fontSize: 10, fontWeight: FontWeight.bold)),
                                   ),
-                                const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(color: (isPending ? Colors.orange : Colors.green).withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-                                  child: Text(isPending ? 'Pending' : 'Paid', style: TextStyle(fontSize: 9, color: isPending ? Colors.orange : Colors.green, fontWeight: FontWeight.w600)),
-                                ),
                               ]),
                             ])),
                             Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
@@ -3661,14 +3640,14 @@ class MrAllowanceScreen extends StatelessWidget {
     Text(label, style: TextStyle(color: color.withOpacity(0.75), fontSize: 12)),
   ]);
 
-  Widget _tierLegend(String tier, String range, String bonus, Color color) => Expanded(
+  Widget _tierLegend(String tier, String range, String bonus, Color color) => Flexible(
     child: Container(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
       decoration: BoxDecoration(color: color.withOpacity(0.08), borderRadius: BorderRadius.circular(8), border: Border.all(color: color.withOpacity(0.3))),
       child: Column(children: [
-        Text(tier, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 11)),
-        Text(range, style: TextStyle(color: Colors.grey.shade600, fontSize: 9)),
-        Text(bonus, style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 11)),
+        Text(tier, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 11), overflow: TextOverflow.ellipsis, maxLines: 1),
+        Text(range, style: TextStyle(color: Colors.grey.shade600, fontSize: 9), overflow: TextOverflow.ellipsis, maxLines: 1),
+        Text(bonus, style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 11), overflow: TextOverflow.ellipsis, maxLines: 1),
       ]),
     ),
   );
@@ -4211,4 +4190,975 @@ class MrProfileScreen extends StatelessWidget {
       onTap: onTap,
     ),
   );
+}
+// ─────────────────────────────────────────────────────────────────────────────
+// MR CONVERSION REQUEST SCREEN
+// Triggered from Quick Actions. Uses _CheckInSession (active within 10 min).
+// If no session → gate screen. If session active → doctor auto-filled.
+// ─────────────────────────────────────────────────────────────────────────────
+class MrConversionRequestScreen extends StatefulWidget {
+  final String? docId;        // Add this
+  final Map<String, dynamic>? docData;  // Optional: if you need full doctor data
+  
+  const MrConversionRequestScreen({
+    super.key, 
+    this.docId,
+    this.docData,
+  });
+
+  @override
+  State<MrConversionRequestScreen> createState() => _MrConversionRequestScreenState();
+}
+
+class _MrConversionRequestScreenState extends State<MrConversionRequestScreen> {
+  // ── Session ────────────────────────────────────────────────────────────────
+  bool _loadingDoctor = true;
+  bool _hasSession    = false;
+  String? _doctorId;
+  String? _doctorName;
+  String? _doctorHospital;
+  String? _doctorTier;   // fetched from Firestore
+
+  // ── Form ───────────────────────────────────────────────────────────────────
+  final _pointsCtrl = TextEditingController();
+  final _orderCtrl  = TextEditingController();
+  final _notesCtrl  = TextEditingController();
+  String? _convertTo;
+  bool _submitting = false;
+
+  static const List<String> _tiers = ['Core', 'Super Core', 'Premium'];
+  static const Map<String, Color> _tierColors = {
+    'Core':       Colors.teal,
+    'Super Core': Colors.orange,
+    'Premium':    Colors.purple,
+  };
+  static const Map<String, String> _tierRanges = {
+    'Core':       '₹5,000 – ₹9,999',
+    'Super Core': '₹10,000 – ₹14,999',
+    'Premium':    '₹15,000+',
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    _initSession();
+  }
+
+  @override
+  void dispose() {
+    _pointsCtrl.dispose();
+    _orderCtrl.dispose();
+    _notesCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initSession() async {
+    // First check if doctor was passed as parameter (from the button click)
+    if (widget.docId != null) {
+      _doctorId = widget.docId;
+      _doctorName = widget.docData?['name'] ?? 
+                    (widget.docData != null ? widget.docData!['name'] : null);
+      
+      // Fetch tier + hospital from Firestore if we have docId but not full data
+      if (_doctorId != null) {
+        try {
+          final doc = await db.collection('doctors').doc(_doctorId).get();
+          if (doc.exists) {
+            final d = doc.data() as Map<String, dynamic>;
+            _doctorTier = d['tier'] as String? ?? 'Normal';
+            _doctorHospital = d['hospital'] as String? ?? '';
+            if (_doctorName == null) {
+              _doctorName = d['name'] as String? ?? '';
+            }
+          }
+        } catch (_) {}
+      }
+      
+      if (mounted) setState(() { 
+        _hasSession = true; 
+        _loadingDoctor = false; 
+      });
+      return;
+    }
+    
+    // Fall back to check-in session if no parameter passed
+    if (!_CheckInSession.isValid()) {
+      if (mounted) setState(() { _hasSession = false; _loadingDoctor = false; });
+      return;
+    }
+    
+    _doctorId   = _CheckInSession.doctorId;
+    _doctorName = _CheckInSession.doctorName;
+    
+    // fetch tier + hospital from Firestore
+    try {
+      final doc = await db.collection('doctors').doc(_doctorId).get();
+      if (doc.exists) {
+        final d = doc.data() as Map<String, dynamic>;
+        _doctorTier     = d['tier']     as String? ?? 'Normal';
+        _doctorHospital = d['hospital'] as String? ?? '';
+      }
+    } catch (_) {}
+    
+    if (mounted) setState(() { _hasSession = true; _loadingDoctor = false; });
+  }
+String _dateKey(DateTime dt) =>
+    '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+  Future<void> _submit() async {
+    // Re-validate session at submit time
+    if (_doctorId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Doctor information missing. Please try again.'),
+        backgroundColor: Colors.red,
+      ));
+      return;
+    }
+    
+    if (_convertTo == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Please select a target tier.'),
+        backgroundColor: Colors.red,
+      ));
+      return;
+    }
+    
+    final pointsText = _pointsCtrl.text.trim();
+    final orderText  = _orderCtrl.text.trim();
+    if (pointsText.isEmpty || orderText.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Please fill in points and expected order amount.'),
+        backgroundColor: Colors.red,
+      ));
+      return;
+    }
+    
+    setState(() => _submitting = true);
+    final today = _dateKey(DateTime.now());
+
+final existing = await db
+    .collection('conversion_requests')
+    .where('mrId', isEqualTo: auth.currentUser!.uid)
+    .where('doctorId', isEqualTo: _doctorId)
+    .where('date', isEqualTo: today)
+    .get();
+
+if (existing.docs.isNotEmpty) {
+  if (mounted) {
+    setState(() => _submitting = false);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text('A conversion request already exists for this doctor today.'),
+      backgroundColor: Colors.orange,
+    ));
+  }
+  return;
+}
+    try {
+      final uid     = auth.currentUser!.uid;
+      final userDoc = await db.collection('users').doc(uid).get();
+      final mrName  = (userDoc.data() as Map<String, dynamic>?)?['name'] ?? 'Unknown MR';
+
+      await db.collection('conversion_requests').add({
+        'mrId':                uid,
+        'mrName':              mrName,
+        'doctorId':            _doctorId,
+        'doctorName':          _doctorName,
+        'currentTier':         _doctorTier ?? 'Normal',
+        'convertTo':           _convertTo,
+        'points':              double.tryParse(pointsText) ?? 0,
+        'expectedOrderAmount': double.tryParse(orderText) ?? 0,
+        'notes':               _notesCtrl.text.trim(),
+        'status':              'pending',
+        'adminPoints':         null,
+        'paymentDate':         null,
+        'adminReply':          null,
+        'createdAt':           FieldValue.serverTimestamp(),
+        'date': _dateKey(DateTime.now()),
+      });
+
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('✅ Conversion request submitted! Admin will review shortly.'),
+          backgroundColor: Colors.green,
+        ));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  // ── Gate: no active check-in and no passed doctor ─────────────────────────
+  Widget _buildGate() => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                    color: Colors.orange.shade50, shape: BoxShape.circle),
+                child: Icon(Icons.location_off,
+                    size: 64, color: Colors.orange.shade400),
+              ),
+              const SizedBox(height: 24),
+              const Text('No Active Check-In',
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 10),
+              Text(
+                'You need to check in with a doctor first.\n'
+                'A conversion request can only be submitted\n'
+                'within 10 minutes of a check-in.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    color: Colors.grey.shade600, fontSize: 14, height: 1.5),
+              ),
+              const SizedBox(height: 32),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1565C0),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                  ),
+                  icon: const Icon(Icons.people),
+                  label: const Text('Go to Doctors & Check In',
+                      style:
+                          TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+  // ── Form: active session ─────────────────────────────────────────────────
+  Widget _buildForm() {
+    final currentTier = _doctorTier ?? 'Normal';
+    final tierColor   = (_tierColors[currentTier] ?? Colors.grey);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+
+        // ── Header banner ────────────────────────────────────────────────
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+                colors: [Color(0xFF7B1FA2), Color(0xFFAB47BC)]),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Row(children: [
+            Icon(Icons.trending_up, color: Colors.white, size: 28),
+            SizedBox(width: 12),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Doctor Conversion Request',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15)),
+              SizedBox(height: 2),
+              Text('Request a tier upgrade for your checked-in doctor.',
+                  style: TextStyle(color: Colors.white70, fontSize: 12)),
+            ])),
+          ]),
+        ),
+        const SizedBox(height: 20),
+
+        // ── Checked-in doctor card (locked) ──────────────────────────────
+        const Text('Checked-In Doctor',
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.green.shade50,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.green.shade200),
+          ),
+          child: Row(children: [
+            CircleAvatar(
+              backgroundColor: Colors.purple.shade100,
+              child: Icon(Icons.person_pin_circle,
+                  color: Colors.purple.shade700),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(_doctorName ?? '—',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: 15)),
+                  if ((_doctorHospital ?? '').isNotEmpty)
+                    Text(_doctorHospital!,
+                        style: TextStyle(
+                            color: Colors.grey.shade600, fontSize: 13)),
+                  const SizedBox(height: 4),
+                  Row(children: [
+                    const Icon(Icons.radio_button_checked,
+                        size: 11, color: Colors.green),
+                    const SizedBox(width: 4),
+                    Text('Active check-in',
+                        style: TextStyle(
+                            color: Colors.green.shade700, fontSize: 12)),
+                  ]),
+                ],
+              ),
+            ),
+            // Current tier badge
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: tierColor.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: tierColor.withOpacity(0.4)),
+              ),
+              child: Text(currentTier,
+                  style: TextStyle(
+                      color: tierColor,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12)),
+            ),
+          ]),
+        ),
+        const SizedBox(height: 20),
+
+        // ── Target tier selector (all 3 shown) ───────────────────────────
+        const Text('Target Tier',
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+        const SizedBox(height: 10),
+        ..._tiers.map((tier) {
+          final color    = _tierColors[tier] ?? Colors.grey;
+          final range    = _tierRanges[tier] ?? '';
+          final selected = _convertTo == tier;
+          const isCurrent = false;
+          return GestureDetector(
+            onTap: isCurrent ? null : () => setState(() => _convertTo = tier),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+              decoration: BoxDecoration(
+                color: isCurrent
+                    ? Colors.grey.shade100
+                    : selected
+                        ? color.withOpacity(0.12)
+                        : Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isCurrent
+                      ? Colors.grey.shade300
+                      : selected
+                          ? color
+                          : Colors.grey.shade300,
+                  width: selected ? 2 : 1,
+                ),
+              ),
+              child: Row(children: [
+                // Radio circle
+                Container(
+                  width: 20, height: 20,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                        color: isCurrent
+                            ? Colors.grey.shade400
+                            : selected
+                                ? color
+                                : Colors.grey.shade400,
+                        width: 2),
+                    color: selected && !isCurrent
+                        ? color
+                        : Colors.transparent,
+                  ),
+                  child: selected && !isCurrent
+                      ? const Icon(Icons.check, size: 13, color: Colors.white)
+                      : null,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(children: [
+                        Text(tier,
+                            style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: isCurrent ? Colors.grey : color,
+                                fontSize: 14)),
+                        if (isCurrent) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade200,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Text('Current',
+                                style: TextStyle(
+                                    fontSize: 9, color: Colors.grey)),
+                          ),
+                        ],
+                      ]),
+                      Text('Order range: $range',
+                          style: TextStyle(
+                              color: Colors.grey.shade600, fontSize: 12)),
+                    ],
+                  ),
+                ),
+                Icon(Icons.trending_up,
+                    color: isCurrent
+                        ? Colors.grey.shade300
+                        : selected
+                            ? color
+                            : Colors.grey.shade300),
+              ]),
+            ),
+          );
+        }),
+        const SizedBox(height: 20),
+
+        // ── Points requested ─────────────────────────────────────────────
+        const Text('Points Requested (₹)',
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _pointsCtrl,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(
+            hintText: 'e.g. 500',
+            prefixText: '₹ ',
+            prefixIcon: Icon(Icons.stars_outlined),
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // ── Expected order amount ────────────────────────────────────────
+        const Text('Expected Order Amount (₹)',
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _orderCtrl,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(
+            hintText: 'e.g. 12000',
+            prefixText: '₹ ',
+            prefixIcon: Icon(Icons.shopping_bag_outlined),
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // ── Notes ────────────────────────────────────────────────────────
+        const Text('Notes / Justification (optional)',
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _notesCtrl,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            hintText:
+                'e.g. Doctor regularly prescribes our products and is ready for a higher tier...',
+          ),
+        ),
+        const SizedBox(height: 28),
+
+        // ── Submit ───────────────────────────────────────────────────────
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: _submitting ? null : _submit,
+            icon: _submitting
+                ? const SizedBox(
+                    width: 18, height: 18,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white))
+                : const Icon(Icons.send),
+            label: Text(
+                _submitting ? 'Submitting...' : 'Send Conversion Request',
+                style: const TextStyle(
+                    fontSize: 15, fontWeight: FontWeight.bold)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF7B1FA2),
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+      ]),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('New Conversion Request'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.history_edu_outlined),
+            tooltip: 'My Conversion History',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const MrConversionHistoryScreen()),
+            ),
+          ),
+        ],
+      ),
+      body: _loadingDoctor
+          ? const Center(child: CircularProgressIndicator())
+          : _hasSession
+              ? _buildForm()
+              : _buildGate(),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MR CONVERSION HISTORY SCREEN
+// Shows all conversion requests submitted by this MR, with status & details.
+// ─────────────────────────────────────────────────────────────────────────────
+class MrConversionHistoryScreen extends StatelessWidget {
+  const MrConversionHistoryScreen({super.key});
+
+  Color _tierColor(String tier) {
+    switch (tier) {
+      case 'Premium':    return Colors.purple;
+      case 'Super Core': return Colors.orange;
+      case 'Core':       return Colors.teal;
+      default:           return Colors.grey;
+    }
+  }
+
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'approved': return Colors.green;
+      case 'rejected': return Colors.red;
+      default:         return Colors.orange;
+    }
+  }
+
+  IconData _statusIcon(String status) {
+    switch (status) {
+      case 'approved': return Icons.check_circle_outline;
+      case 'rejected': return Icons.cancel_outlined;
+      default:         return Icons.hourglass_empty;
+    }
+  }
+
+  String _fmt(dynamic val) {
+    if (val == null) return '—';
+    final n = double.tryParse(val.toString());
+    if (n == null) return val.toString();
+    return n % 1 == 0 ? '₹${n.toInt()}' : '₹${n.toStringAsFixed(2)}';
+  }
+
+  String _formatTs(dynamic ts) {
+    if (ts == null) return '—';
+    DateTime dt;
+    if (ts is Timestamp) {
+      dt = ts.toDate();
+    } else {
+      return ts.toString();
+    }
+    final months = ['Jan','Feb','Mar','Apr','May','Jun',
+                    'Jul','Aug','Sep','Oct','Nov','Dec'];
+    return '${dt.day} ${months[dt.month - 1]} ${dt.year}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final uid = auth.currentUser?.uid ?? '';
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Conversion History'),
+      ),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: db
+            .collection('conversion_requests')
+            .where('mrId', isEqualTo: uid)
+            .orderBy('createdAt', descending: true)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                    const SizedBox(height: 12),
+                    const Text('Could not load history.',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    Text(snapshot.error.toString(),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                  ],
+                ),
+              ),
+            );
+          }
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(28),
+                    decoration: BoxDecoration(
+                      color: Colors.purple.shade50,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.trending_up,
+                        size: 60, color: Colors.purple.shade300),
+                  ),
+                  const SizedBox(height: 24),
+                  const Text('No Conversions Yet',
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Your submitted conversion requests\nwill appear here.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: Colors.grey.shade600, fontSize: 14, height: 1.5),
+                  ),
+                  const SizedBox(height: 28),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const MrConversionRequestScreen()),
+                      );
+                    },
+                    icon: const Icon(Icons.trending_up),
+                    label: const Text('Request a Conversion'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF7B1FA2),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 24, vertical: 12),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          final docs = snapshot.data!.docs;
+
+          return ListView.builder(
+            padding: const EdgeInsets.all(14),
+            itemCount: docs.length,
+            itemBuilder: (context, i) {
+              final data   = docs[i].data() as Map<String, dynamic>;
+              final status = (data['status'] as String? ?? 'pending').toLowerCase();
+              final statusColor = _statusColor(status);
+              final statusIcon  = _statusIcon(status);
+              final currentTier = data['currentTier'] as String? ?? 'Normal';
+              final convertTo   = data['convertTo'] as String? ?? '—';
+              final tierColor   = _tierColor(convertTo);
+              final doctorName  = data['doctorName'] as String? ?? '—';
+              final adminPoints = data['adminPoints'];
+              final adminReply  = data['adminReply'] as String?;
+              final paymentDate = data['paymentDate'];
+
+              return Card(
+                margin: const EdgeInsets.only(bottom: 14),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
+                elevation: 2,
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+
+                      // ── Header row ────────────────────────────────────────
+                      Row(
+                        children: [
+                          CircleAvatar(
+                            backgroundColor:
+                                Colors.purple.shade50,
+                            child: Icon(Icons.person_pin_circle,
+                                color: Colors.purple.shade700),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(doctorName,
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 15)),
+                                Text(_formatTs(data['createdAt']),
+                                    style: TextStyle(
+                                        color: Colors.grey.shade500,
+                                        fontSize: 12)),
+                              ],
+                            ),
+                          ),
+                          // Status badge
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: statusColor.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                  color: statusColor.withOpacity(0.4)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(statusIcon,
+                                    size: 13, color: statusColor),
+                                const SizedBox(width: 4),
+                                Text(
+                                  status[0].toUpperCase() +
+                                      status.substring(1),
+                                  style: TextStyle(
+                                      color: statusColor,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+
+                      // ── Tier progression ──────────────────────────────────
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 9, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: _tierColor(currentTier).withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                  color: _tierColor(currentTier)
+                                      .withOpacity(0.3)),
+                            ),
+                            child: Text(currentTier,
+                                style: TextStyle(
+                                    color: _tierColor(currentTier),
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 12)),
+                          ),
+                          Padding(
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 8),
+                            child: Icon(Icons.arrow_forward,
+                                size: 16, color: Colors.grey.shade500),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 9, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: tierColor.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                  color: tierColor.withOpacity(0.4)),
+                            ),
+                            child: Text(convertTo,
+                                style: TextStyle(
+                                    color: tierColor,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12)),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+
+                      // ── Amounts row ───────────────────────────────────────
+                      Row(
+                        children: [
+                          _infoChip(
+                            Icons.stars_outlined,
+                            'Requested',
+                            _fmt(data['points']),
+                            Colors.amber.shade700,
+                          ),
+                          const SizedBox(width: 8),
+                          _infoChip(
+                            Icons.shopping_bag_outlined,
+                            'Expected Order',
+                            _fmt(data['expectedOrderAmount']),
+                            Colors.blue,
+                          ),
+                        ],
+                      ),
+
+                      // ── Notes ─────────────────────────────────────────────
+                      if ((data['notes'] as String?)?.isNotEmpty == true) ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.grey.shade200),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.notes,
+                                  size: 14, color: Colors.grey.shade500),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  data['notes'] as String,
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade700,
+                                      fontStyle: FontStyle.italic),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+
+                      // ── Admin response (approved/rejected only) ───────────
+                      if (status != 'pending') ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: statusColor.withOpacity(0.06),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                                color: statusColor.withOpacity(0.2)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Admin Response',
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 12,
+                                      color: statusColor)),
+                              const SizedBox(height: 6),
+                              if (status == 'approved') ...[
+                                Row(
+                                  children: [
+                                    _infoChip(
+                                      Icons.stars,
+                                      'Approved Points',
+                                      adminPoints != null
+                                          ? _fmt(adminPoints)
+                                          : '—',
+                                      Colors.green,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    _infoChip(
+                                      Icons.calendar_today,
+                                      'Payment Date',
+                                      paymentDate != null
+                                          ? _formatTs(paymentDate)
+                                          : '—',
+                                      Colors.blue,
+                                    ),
+                                  ],
+                                ),
+                              ],
+                              if ((adminReply ?? '').isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                Row(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Icon(Icons.message_outlined,
+                                        size: 13,
+                                        color: Colors.grey.shade600),
+                                    const SizedBox(width: 5),
+                                    Expanded(
+                                      child: Text(
+                                        adminReply!,
+                                        style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey.shade700),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _infoChip(
+      IconData icon, String label, String value, Color color) {
+    return Expanded(
+      child: Container(
+        padding:
+            const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withOpacity(0.2)),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 13, color: color),
+            const SizedBox(width: 5),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label,
+                      style: TextStyle(
+                          fontSize: 9,
+                          color: Colors.grey.shade500)),
+                  Text(value,
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: color)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

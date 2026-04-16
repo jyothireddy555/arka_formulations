@@ -32,6 +32,7 @@ class _AdminMainScreenState extends State<AdminMainScreen> {
     const AdminStockScreen(),
     const AdminOrdersScreen(),
     const AdminMrManagementScreen(),
+    const AdminConversionScreen(),
     const AdminProfileScreen(),
   ];
 
@@ -109,6 +110,7 @@ class _AdminMainScreenState extends State<AdminMainScreen> {
             BottomNavigationBarItem(icon: Icon(Icons.inventory_2), label: 'Stock'),
             BottomNavigationBarItem(icon: Icon(Icons.shopping_bag), label: 'Orders'),
             BottomNavigationBarItem(icon: Icon(Icons.badge), label: 'MRs'),
+            BottomNavigationBarItem(icon: Icon(Icons.trending_up), label: 'Conversions'),
             BottomNavigationBarItem(icon: Icon(Icons.manage_accounts), label: 'Manage'),
           ],
         ),
@@ -251,10 +253,10 @@ class AdminDashboardScreen extends StatelessWidget {
                             return StreamBuilder<QuerySnapshot>(
                               stream: _db
                                   .collection('orders')
-                                  .where('status', isEqualTo: 'dispatched')
+                                  .where('status', isEqualTo: 'approved')
                                   .snapshots(),
                               builder: (context, dispatchSnap) {
-                                final dispatched = dispatchSnap.hasData
+                                final approved = dispatchSnap.hasData
                                     ? dispatchSnap.data!.docs.length
                                     : 0;
                                 return StreamBuilder<QuerySnapshot>(
@@ -302,9 +304,9 @@ class AdminDashboardScreen extends StatelessWidget {
                                                 Icons.event_busy,
                                                 Colors.red),
                                             _statCard(
-                                                'Dispatched',
-                                                '$dispatched',
-                                                Icons.local_shipping,
+                                                'Approved Orders',
+                                                '$approved',
+                                                Icons.check_circle_outline,
                                                 Colors.teal),
                                             _statCard(
                                                 'Reports Today',
@@ -383,11 +385,7 @@ class AdminDoctorsScreen extends StatefulWidget {
 
 class _AdminDoctorsScreenState extends State<AdminDoctorsScreen> {
   String _searchQuery = '';
-  String _filterDivision = 'All';
   String _filterTier = 'All';
-  final List<String> _divisions = [
-    'All', 'Ortho', 'Gynec', 'General'
-  ];
   final List<String> _tiers = [
     'All', 'Core', 'Super Core', 'Premium'
   ];
@@ -426,30 +424,6 @@ class _AdminDoctorsScreenState extends State<AdminDoctorsScreen> {
                 )
                     : null,
               ),
-            ),
-          ),
-          SizedBox(
-            height: 40,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              itemCount: _divisions.length,
-              itemBuilder: (context, index) {
-                final div = _divisions[index];
-                final isSelected = _filterDivision == div;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: FilterChip(
-                    label: Text(div),
-                    selected: isSelected,
-                    onSelected: (_) =>
-                        setState(() => _filterDivision = div),
-                    selectedColor:
-                    const Color(0xFF1565C0).withOpacity(0.2),
-                    checkmarkColor: const Color(0xFF1565C0),
-                  ),
-                );
-              },
             ),
           ),
           const SizedBox(height: 4),
@@ -525,8 +499,6 @@ class _AdminDoctorsScreenState extends State<AdminDoctorsScreen> {
                   final hospital = (data['hospital'] ?? '')
                       .toString()
                       .toLowerCase();
-                  final division =
-                  (data['division'] ?? '').toString();
                   final tier =
                   (data['tier'] ?? 'Normal').toString();
 
@@ -534,14 +506,10 @@ class _AdminDoctorsScreenState extends State<AdminDoctorsScreen> {
                       name.contains(_searchQuery) ||
                       hospital.contains(_searchQuery);
 
-                  final matchesDivision =
-                      _filterDivision == 'All' ||
-                          division == _filterDivision;
-
                   final matchesTier =
                       _filterTier == 'All' || tier == _filterTier;
 
-                  return matchesSearch && matchesDivision && matchesTier;
+                  return matchesSearch && matchesTier;
                 }).toList();
 
                 if (docs.isEmpty) {
@@ -588,34 +556,17 @@ class _AdminDoctorCard extends StatelessWidget {
     required this.docId,
   });
 
-  Color _divisionColor(String division) {
-    switch (division) {
-      case 'Ortho':
-        return Colors.blue;
-      case 'Gynec':
-        return Colors.pink;
-      default:
-        return Colors.green;
-    }
-  }
-
   Color _tierColor(String tier) {
     switch (tier) {
-      case 'Premium':
-        return Colors.purple;
-      case 'Super Core':
-        return Colors.orange;
-      case 'Core':
-        return Colors.teal;
-      default:
-        return Colors.grey;
+      case 'Premium':    return Colors.purple;
+      case 'Super Core': return Colors.orange;
+      case 'Core':       return Colors.teal;
+      default:           return Colors.grey;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final division = data['division'] ?? 'General';
-    final color = _divisionColor(division);
     final tier = data['tier'] ?? 'Normal';
     final tierColor = _tierColor(tier);
     final hasLocation = data['latitude'] != null &&
@@ -633,8 +584,8 @@ class _AdminDoctorCard extends StatelessWidget {
             Row(
               children: [
                 CircleAvatar(
-                  backgroundColor: color.withOpacity(0.15),
-                  child: Icon(Icons.person, color: color),
+                  backgroundColor: const Color(0xFF1565C0).withOpacity(0.12),
+                  child: const Icon(Icons.person, color: Color(0xFF1565C0)),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -751,19 +702,6 @@ class _AdminDoctorCard extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(division,
-                      style: TextStyle(
-                          color: color,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600)),
-                ),
                 if (tier != 'Normal')
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -859,7 +797,6 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
   final _licence21bController = TextEditingController();
   final _gstController        = TextEditingController();
 
-  String _selectedDivision = 'Ortho';
   double? _latitude;
   double? _longitude;
   bool _isLoading = false;
@@ -867,7 +804,6 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
   String _errorMessage = '';
   bool get _isEditing => widget.existingData != null;
 
-  final List<String> _divisions = ['Ortho', 'Gynec', 'General'];
   final List<String> _specializations = [
     'Orthopedic Surgeon',
     'Gynecologist',
@@ -889,7 +825,6 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
       _hospitalController.text = d['hospital'] ?? '';
       _areaController.text = d['area'] ?? '';
       _addressController.text = d['address'] ?? '';
-      _selectedDivision = d['division'] ?? 'Ortho';
       _selectedSpecialization =
           d['specialization'] ?? 'Orthopedic Surgeon';
       _latitude = d['latitude'];
@@ -1122,7 +1057,6 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
         'licence20b': _licence20bController.text.trim(),
         'licence21b': _licence21bController.text.trim(),
         'gst':        _gstController.text.trim(),
-        'division': _selectedDivision,
         'latitude': _latitude,
         'longitude': _longitude,
         'tier': 'Normal',
@@ -1296,20 +1230,7 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
                 prefixIcon: Icon(Icons.receipt_long_outlined),
               ),
             ),
-            const SizedBox(height: 14),
-            _label('Division'),
-            DropdownButtonFormField<String>(
-              value: _selectedDivision,
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.category_outlined),
-              ),
-              items: _divisions
-                  .map((d) =>
-                  DropdownMenuItem(value: d, child: Text(d)))
-                  .toList(),
-              onChanged: (val) =>
-                  setState(() => _selectedDivision = val!),
-            ),
+
             const SizedBox(height: 20),
             // REPLACE the existing location Container with this:
             _label('Doctor\'s Location'),
@@ -1656,7 +1577,7 @@ class AdminMrManagementScreen extends StatelessWidget {
                               return Row(children: [
                                 _mrStatChip('Orders', '${allDocs.length}', Colors.blue),
                                 const SizedBox(width: 8),
-                                _mrStatChip('Total Bonus', '₹${total.toStringAsFixed(0)}',
+                              _mrStatChip('Total Incentive', '₹${total.toStringAsFixed(0)}',
                                     Colors.green),
                               ]);
                             },
@@ -1707,10 +1628,10 @@ class _EditMrScreenState extends State<EditMrScreen> {
   late final TextEditingController _nameController;
   late final TextEditingController _phoneController;
   late final TextEditingController _areaController;
-  String _selectedDivision = 'Ortho';
+  String _selectedDivision = 'Osteon';
   bool _isLoading = false;
   String _errorMessage = '';
-  final List<String> _divisions = ['Ortho', 'Gynec', 'General', 'Both'];
+  final List<String> _divisions = ['Osteon', 'Ceflon', 'Generic', 'Both'];
 
   @override
   void initState() {
@@ -1718,7 +1639,8 @@ class _EditMrScreenState extends State<EditMrScreen> {
     _nameController  = TextEditingController(text: widget.mrData['name']  ?? '');
     _phoneController = TextEditingController(text: widget.mrData['phone'] ?? '');
     _areaController  = TextEditingController(text: widget.mrData['area']  ?? '');
-    _selectedDivision = widget.mrData['division'] ?? 'Ortho';
+    final rawDivision = widget.mrData['division'] ?? 'Osteon';
+    _selectedDivision = _divisions.contains(rawDivision) ? rawDivision : 'Osteon';
   }
 
   @override
@@ -1959,7 +1881,7 @@ class AdminMrDetailScreen extends StatelessWidget {
 
               // ── Commission summary row ────────────────────
               Row(children: [
-                _summaryBox('Total Bonus', '₹${totalBonus.toStringAsFixed(0)}',
+                _summaryBox('Total Incentive', '₹${totalBonus.toStringAsFixed(0)}',
                     Colors.green, Icons.account_balance_wallet),
                 const SizedBox(width: 10),
                 _summaryBox('Records', '${docs.length}',
@@ -2068,7 +1990,7 @@ class AdminMrDetailScreen extends StatelessWidget {
               ),
               // ── History header ────────────────────────────
               Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                const Text('Commission History',
+                const Text('Incentive History',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 if (docs.isNotEmpty)
                   Text('${docs.length} record(s)',
@@ -2085,7 +2007,7 @@ class AdminMrDetailScreen extends StatelessWidget {
                       Icon(Icons.account_balance_wallet_outlined,
                           size: 60, color: Colors.grey.shade300),
                       const SizedBox(height: 12),
-                      Text('No commission records yet',
+                      Text('No incentive records yet',
                           style: TextStyle(color: Colors.grey.shade500)),
                     ]),
                   ),
@@ -2172,7 +2094,7 @@ class AdminMrDetailScreen extends StatelessWidget {
                                       color: tColor,
                                       fontWeight: FontWeight.bold,
                                       fontSize: 16)),
-                              Text('bonus',
+                              Text('incentive',
                                   style: TextStyle(
                                       color: Colors.grey.shade500,
                                       fontSize: 10)),
@@ -2363,11 +2285,11 @@ class _AddMrScreenState extends State<AddMrScreen> {
   final _phoneController = TextEditingController();
   final _areaController = TextEditingController();
   final _passwordController = TextEditingController();
-  String _selectedDivision = 'Ortho';
+  String _selectedDivision = 'Osteon';
   bool _isLoading = false;
   bool _obscurePassword = true;
   String _errorMessage = '';
-  final List<String> _divisions = ['Ortho', 'Gynec', 'General', 'Both'];
+  final List<String> _divisions = ['Osteon', 'Ceflon', 'Generic', 'Both'];
 
   Future<void> _createMr() async {
     final name = _nameController.text.trim();
@@ -2597,7 +2519,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 2, vsync: this);
   }
 
   @override
@@ -2608,13 +2530,10 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
 
   Color _statusColor(String s) {
     switch (s) {
-      case 'pending':    return Colors.orange;
-      case 'approved':   return Colors.blue;
-      case 'rejected':   return Colors.red;
-      case 'dispatched': return Colors.teal;
-      case 'delivered':  return Colors.green;
-      case 'cancelled':  return Colors.red;
-      default:           return Colors.grey;
+      case 'pending':  return Colors.orange;
+      case 'approved': return Colors.green;
+      case 'rejected': return Colors.red;
+      default:         return Colors.grey;
     }
   }
 
@@ -2628,24 +2547,17 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen>
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white60,
           indicatorColor: Colors.white,
-          isScrollable: true,
           tabs: const [
+            Tab(text: 'All Orders'),
             Tab(text: 'Pending'),
-            Tab(text: 'Approved'),
-            Tab(text: 'Rejected'),
-            Tab(text: 'Dispatched'),
-            Tab(text: 'All'),
           ],
         ),
       ),
       body: TabBarView(
         controller: _tabController,
         children: [
-          _OrderTab(statusFilter: 'pending',    statusColor: _statusColor),
-          _OrderTab(statusFilter: 'approved',   statusColor: _statusColor),
-          _OrderTab(statusFilter: 'rejected',   statusColor: _statusColor),
-          _OrderTab(statusFilter: 'dispatched', statusColor: _statusColor),
-          _OrderTab(statusFilter: null,         statusColor: _statusColor),
+          _OrderTab(statusFilter: null,      statusColor: _statusColor),
+          _OrderTab(statusFilter: 'pending', statusColor: _statusColor),
         ],
       ),
     );
@@ -2728,6 +2640,7 @@ class _OrderTab extends StatelessWidget {
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 subtitle: Column(
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
@@ -2743,6 +2656,7 @@ class _OrderTab extends StatelessWidget {
                 ),
                 isThreeLine: true,
                 trailing: Column(
+                  mainAxisSize: MainAxisSize.min,
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
@@ -2770,6 +2684,7 @@ class _OrderTab extends StatelessWidget {
                       orderId: doc.id, data: data,
                       statusColor: statusColor),
                 ),
+                // read-only: tap opens detail view only
               ),
             );
           },
@@ -2780,38 +2695,14 @@ class _OrderTab extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────
-// ADMIN ORDER DETAIL DIALOG — FIXED
-// Converted to StatefulWidget to prevent double-tap / multiple submissions
+// ADMIN ORDER DETAIL DIALOG — READ-ONLY
 // ─────────────────────────────────────────
-class _AdminOrderDetailDialog extends StatefulWidget {
+class _AdminOrderDetailDialog extends StatelessWidget {
   final String orderId;
   final Map<String, dynamic> data;
   final Color Function(String) statusColor;
   const _AdminOrderDetailDialog(
       {required this.orderId, required this.data, required this.statusColor});
-
-  @override
-  State<_AdminOrderDetailDialog> createState() =>
-      _AdminOrderDetailDialogState();
-}
-
-class _AdminOrderDetailDialogState extends State<_AdminOrderDetailDialog> {
-  bool _isProcessing = false;
-
-  String get orderId => widget.orderId;
-  Map<String, dynamic> get data => widget.data;
-  Color Function(String) get statusColor => widget.statusColor;
-
-  /// Runs an async action with processing guard — prevents double-tap.
-  Future<void> _runAction(Future<void> Function() action) async {
-    if (_isProcessing) return;
-    setState(() => _isProcessing = true);
-    try {
-      await action();
-    } finally {
-      if (mounted) setState(() => _isProcessing = false);
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -2850,28 +2741,10 @@ class _AdminOrderDetailDialogState extends State<_AdminOrderDetailDialog> {
                 color: Colors.purple.shade50,
                 borderRadius: BorderRadius.circular(20),
               ),
-              child: Text('Doctor Tier: ${data['tier']} • Commission: ₹${data['commission'] ?? 0}',
+              child: Text(
+                   'Doctor Tier: ${data['tier']} • Incentive: ₹${data['commission'] ?? 0}',
                   style: TextStyle(color: Colors.purple.shade700, fontSize: 11)),
             ),
-          if (status == 'rejected' && data['rejectionReason'] != null) ...[
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.red.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.red.shade200),
-              ),
-              child: Row(children: [
-                const Icon(Icons.block, color: Colors.red, size: 16),
-                const SizedBox(width: 6),
-                Expanded(child: Text(
-                  'Rejected: ${data['rejectionReason']}',
-                  style: TextStyle(color: Colors.red.shade700, fontSize: 12),
-                )),
-              ]),
-            ),
-          ],
           const SizedBox(height: 12),
           const Divider(),
           ...items.map((item) => ListTile(
@@ -2889,233 +2762,18 @@ class _AdminOrderDetailDialogState extends State<_AdminOrderDetailDialog> {
               child: Text('Remarks: ${data['remarks']}',
                   style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
             ),
-          Wrap(spacing: 8, runSpacing: 8, children: [
-            if (status == 'pending') ...[
-              _actionBtn('Approve', Colors.blue, () => _runAction(() async {
-                final stockistUid = data['stockistId']?.toString() ?? '';
-                try {
-                  // ── PRE-CHECK: verify sufficient stock ──────────────
-                  if (stockistUid.isNotEmpty) {
-                    final stockDoc = await _db
-                        .collection('stockist_stock')
-                        .doc(stockistUid)
-                        .get();
-                    final stockData = stockDoc.exists
-                        ? (stockDoc.data() as Map<String, dynamic>)
-                        : <String, dynamic>{};
-
-                    final List<String> insufficientItems = [];
-                    for (final item in items) {
-                      final pid = item['productId']?.toString() ?? '';
-                      if (pid.isEmpty) continue;
-                      final available = (stockData[pid] as num?)?.toInt() ?? 0;
-                      final ordered   = (item['quantity'] as num?)?.toInt() ?? 0;
-                      if (available < ordered) {
-                        insufficientItems.add(
-                            '${item['productName'] ?? pid}: need $ordered, have $available'
-                        );
-                      }
-                    }
-
-                    if (insufficientItems.isNotEmpty) {
-                      if (context.mounted) {
-                        showDialog(
-                          context: context,
-                          builder: (_) => AlertDialog(
-                            title: const Row(children: [
-                              Icon(Icons.warning_amber, color: Colors.orange),
-                              SizedBox(width: 8),
-                              Text('Insufficient Stock'),
-                            ]),
-                            content: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Cannot approve — the following items don\'t have enough stock:',
-                                  style: TextStyle(fontSize: 13, color: Colors.grey),
-                                ),
-                                const SizedBox(height: 12),
-                                ...insufficientItems.map((msg) => Padding(
-                                  padding: const EdgeInsets.only(bottom: 6),
-                                  child: Row(children: [
-                                    const Icon(Icons.remove_circle,
-                                        color: Colors.red, size: 16),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(msg,
-                                          style: const TextStyle(
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w600)),
-                                    ),
-                                  ]),
-                                )),
-                              ],
-                            ),
-                            actions: [
-                              ElevatedButton(
-                                onPressed: () => Navigator.pop(context),
-                                style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.orange),
-                                child: const Text('OK'),
-                              ),
-                            ],
-                          ),
-                        );
-                      }
-                      return; // ← stop, don't approve
-                    }
-                  }
-
-                  // ── Stock is sufficient (or no stockist assigned), proceed ──
-                  await _db.runTransaction((txn) async {
-                    if (stockistUid.isNotEmpty) {
-                      final stockRef = _db.collection('stockist_stock').doc(stockistUid);
-                      final stockDoc = await txn.get(stockRef);
-                      final stockData = stockDoc.exists
-                          ? (stockDoc.data() as Map<String, dynamic>)
-                          : <String, dynamic>{};
-
-                      final updated = Map<String, dynamic>.from(stockData);
-                      for (final item in items) {
-                        final pid = item['productId']?.toString() ?? '';
-                        if (pid.isEmpty) continue;
-                        final current = (updated[pid] as num?)?.toInt() ?? 0;
-                        final ordered = (item['quantity'] as num?)?.toInt() ?? 0;
-                        updated[pid] = (current - ordered).clamp(0, 999999);
-                      }
-                      if (stockDoc.exists) {
-                        txn.update(stockRef, updated);
-                      } else {
-                        txn.set(stockRef, updated);
-                      }
-                    }
-
-                    txn.update(_db.collection('orders').doc(orderId), {
-                      'status': 'approved',
-                      'approvedAt': FieldValue.serverTimestamp(),
-                    });
-                  });
-
-                  final mrId = data['mrId']?.toString() ?? '';
-                  if (mrId.isNotEmpty) {
-                    await _db.collection('notifications').add({
-                      'mrId':      mrId,
-                      'title':     'Order Approved ✅',
-                      'body':      'Your order for ${data['doctorName'] ?? 'doctor'} has been approved.',
-                      'type':      'order_approved',
-                      'orderId':   orderId,
-                      'isRead':    false,
-                      'createdAt': FieldValue.serverTimestamp(),
-                    });
-                  }
-                  if (context.mounted) Navigator.pop(context);
-                } catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
-                  }
-                }
-              })),
-              _actionBtn('Cancel', Colors.red, () => _runAction(() async {
-                await _db.collection('orders').doc(orderId)
-                    .update({'status': 'cancelled'});
-                final mrId = data['mrId']?.toString() ?? '';
-                if (mrId.isNotEmpty) {
-                  await _db.collection('notifications').add({
-                    'mrId':      mrId,
-                    'title':     'Order Cancelled ❌',
-                    'body':      'Your order for ${data['doctorName'] ?? 'doctor'} was cancelled.',
-                    'type':      'order_cancelled',
-                    'orderId':   orderId,
-                    'isRead':    false,
-                    'createdAt': FieldValue.serverTimestamp(),
-                  });
-                }
-                if (context.mounted) Navigator.pop(context);
-              })),
-            ],
-            if (status == 'approved')
-              _actionBtn('Mark Dispatched', Colors.teal, () => _runAction(() async {
-                try {
-                  await _db.runTransaction((txn) async {
-                    final productRefs = <String, DocumentReference>{};
-                    final productSnaps = <String, DocumentSnapshot>{};
-                    for (final item in items) {
-                      final pid = item['productId']?.toString() ?? '';
-                      if (pid.isNotEmpty && !productRefs.containsKey(pid)) {
-                        final ref = _db.collection('products').doc(pid);
-                        productRefs[pid] = ref;
-                        productSnaps[pid] = await txn.get(ref);
-                      }
-                    }
-                    txn.update(_db.collection('orders').doc(orderId),
-                        {'status': 'dispatched', 'dispatchedAt': FieldValue.serverTimestamp()});
-                    for (final item in items) {
-                      final pid = item['productId']?.toString() ?? '';
-                      if (pid.isEmpty) continue;
-                      final snap = productSnaps[pid];
-                      if (snap == null || !snap.exists) continue;
-                      final currentStock =
-                          ((snap.data() as Map<String, dynamic>)['stock'] as num?)?.toInt() ?? 0;
-                      final ordered = (item['quantity'] as num?)?.toInt() ?? 0;
-                      final newStock = (currentStock - ordered).clamp(0, 999999);
-                      txn.update(productRefs[pid]!, {'stock': newStock});
-                    }
-                  });
-                  final mrId = data['mrId']?.toString() ?? '';
-                  if (mrId.isNotEmpty) {
-                    await _db.collection('notifications').add({
-                      'mrId':      mrId,
-                      'title':     'Order Dispatched 🚚',
-                      'body':      'Your order for ${data['doctorName'] ?? 'doctor'} has been dispatched.',
-                      'type':      'order_dispatched',
-                      'orderId':   orderId,
-                      'isRead':    false,
-                      'createdAt': FieldValue.serverTimestamp(),
-                    });
-                  }
-                  if (context.mounted) {
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                        content: Text('✅ Order dispatched & stock updated!'),
-                        backgroundColor: Colors.teal));
-                  }
-                } catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                        content: Text('Error: $e'), backgroundColor: Colors.red));
-                  }
-                }
-              })),
-            if (status == 'dispatched')
-              _actionBtn('Mark Delivered', Colors.green, () => _runAction(() async {
-                await _db.collection('orders').doc(orderId)
-                    .update({'status': 'delivered'});
-                if (context.mounted) Navigator.pop(context);
-              })),
-            OutlinedButton(
-              onPressed: _isProcessing ? null : () => Navigator.pop(context),
-              child: const Text('Close'),
-            ),
-          ]),
+          const SizedBox(height: 4),
+          OutlinedButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
         ]),
       ),
     );
   }
-
-  Widget _actionBtn(String label, Color color, VoidCallback onPressed) =>
-      ElevatedButton(
-        onPressed: _isProcessing ? null : onPressed,
-        style: ElevatedButton.styleFrom(
-            backgroundColor: color, foregroundColor: Colors.white),
-        child: _isProcessing
-            ? const SizedBox(
-            width: 16, height: 16,
-            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-            : Text(label),
-      );
 }
+
+
 
 // ─────────────────────────────────────────
 // ADMIN MR REPORTS SCREEN
@@ -3356,6 +3014,7 @@ class _AdminMrReportsScreenState extends State<AdminMrReportsScreen> {
     );
   }
 }
+
 // ─────────────────────────────────────────
 // ADMIN STOCK SCREEN
 // ─────────────────────────────────────────
@@ -3369,258 +3028,14 @@ class AdminStockScreen extends StatefulWidget {
 class _AdminStockScreenState extends State<AdminStockScreen> {
   String _filterDivision = 'All';
   String _searchQuery = '';
-  final List<String> _divisions = ['All', 'Ortho', 'Gynec', 'General'];
-
-  String _selectedStockistView = 'overall';
-  String _selectedStockistLabel = 'Overall (Products)';
-  List<Map<String, dynamic>> _stockists = [];
-  Map<String, int> _stockistStockData = {};
-  bool _loadingStockists = true;
-  bool _loadingStockistStock = false;
-  bool _addingToAll = false; // ← prevent double-tap on "Add to All"
-
-  @override
-  void initState() {
-    super.initState();
-    _loadStockists();
-  }
-
-  Future<void> _loadStockists() async {
-    try {
-      // Admin should see ALL stockists, not just assigned ones
-      final snap = await db
-          .collection('users')
-          .where('role', isEqualTo: 'stockist')
-          .where('isActive', isEqualTo: true)
-          .orderBy('name')
-          .get();
-
-      if (mounted) {
-        setState(() {
-          _stockists = snap.docs.map((d) {
-            final data = d.data() as Map<String, dynamic>;
-            return {
-              'id': d.id,
-              'uid': d.id,
-              'name': data['name'] ?? 'Unknown',
-              'city': data['city'] ?? '',
-            };
-          }).toList();
-          _loadingStockists = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) setState(() => _loadingStockists = false);
-    }
-  }
-
-  Future<void> _loadStockistStock(String stockistUid) async {
-    if (!mounted) return;
-    setState(() {
-      _loadingStockistStock = true;
-      _stockistStockData = {}; // clear stale data while loading
-    });
-    try {
-      final doc =
-      await _db.collection('stockist_stock').doc(stockistUid).get();
-      if (mounted) {
-        final data =
-        doc.exists ? (doc.data() ?? {}) : <String, dynamic>{};
-        setState(() {
-          _stockistStockData =
-              data.map((k, v) => MapEntry(k, (v as num?)?.toInt() ?? 0));
-          _loadingStockistStock = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) setState(() => _loadingStockistStock = false);
-    }
-  }
-
-  // Called by _ProductCard after a successful stockist-stock update
-  // so the list refreshes immediately without navigation
-  void _onStockistStockUpdated(String productId, int newQty) {
-    if (!mounted) return;
-    setState(() {
-      _stockistStockData[productId] = newQty;
-    });
-  }
-
-  void _showAddStockToAllDialog(BuildContext context) async {
-    if (_addingToAll) return; // guard double-tap
-    final productsSnap = await _db.collection('products').get();
-    String? selectedProductId;
-    String? selectedProductName;
-    final qtyController = TextEditingController();
-    bool saving = false;
-
-    if (!context.mounted) return;
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => StatefulBuilder(
-        builder: (ctx, setStateDialog) => AlertDialog(
-          title: const Text('Add Stock to All Stockists'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DropdownButtonFormField<String>(
-                hint: const Text('Select Product'),
-                value: selectedProductId,
-                items: productsSnap.docs.map((d) {
-                  final data = d.data();
-                  return DropdownMenuItem(
-                    value: d.id,
-                    child: Text(data['name'] ?? ''),
-                  );
-                }).toList(),
-                onChanged: saving
-                    ? null // disable while saving
-                    : (val) => setStateDialog(() {
-                  selectedProductId = val;
-                  selectedProductName = productsSnap.docs
-                      .firstWhere((d) => d.id == val)
-                      .data()['name'];
-                }),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: qtyController,
-                keyboardType: TextInputType.number,
-                enabled: !saving,
-                decoration: const InputDecoration(
-                  labelText: 'Quantity to Add',
-                  prefixIcon: Icon(Icons.add_box),
-                ),
-              ),
-              if (saving) ...[
-                const SizedBox(height: 16),
-                const Row(
-                  children: [
-                    SizedBox(
-                        width: 18,
-                        height: 18,
-                        child:
-                        CircularProgressIndicator(strokeWidth: 2)),
-                    SizedBox(width: 10),
-                    Text('Adding to all stockists…',
-                        style: TextStyle(fontSize: 13)),
-                  ],
-                ),
-              ],
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed:
-              saving ? null : () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: saving
-                  ? null // prevent double-tap
-                  : () async {
-                if (selectedProductId == null) return;
-                final qty =
-                    int.tryParse(qtyController.text.trim()) ?? 0;
-                if (qty <= 0) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                        content:
-                        Text('Please enter a valid quantity'),
-                        backgroundColor: Colors.orange),
-                  );
-                  return;
-                }
-                setStateDialog(() => saving = true);
-                setState(() => _addingToAll = true);
-                try {
-                  final stockistsSnap = await _db
-                      .collection('users')
-                      .where('role', isEqualTo: 'stockist')
-                      .get();
-                  final batch = _db.batch();
-                  for (final s in stockistsSnap.docs) {
-                    final uid = s.id;
-                    final stockRef = _db
-                        .collection('stockist_stock')
-                        .doc(uid);
-                    final stockDoc = await stockRef.get();
-                    final current = stockDoc.exists
-                        ? (stockDoc.data()?[selectedProductId!]
-                    as num?)
-                        ?.toInt() ??
-                        0
-                        : 0;
-                    batch.set(
-                      stockRef,
-                      {selectedProductId!: current + qty},
-                      SetOptions(merge: true),
-                    );
-                  }
-                  await batch.commit();
-
-                  // If currently viewing a stockist, refresh immediately
-                  if (_selectedStockistView != 'overall') {
-                    await _loadStockistStock(
-                        _selectedStockistView);
-                  }
-
-                  if (ctx.mounted) Navigator.pop(ctx);
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                            '✅ Added $qty units of $selectedProductName to all stockists!'),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-                  }
-                } catch (e) {
-                  if (ctx.mounted)
-                    setStateDialog(() => saving = false);
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                          content: Text('❌ Failed. Try again.'),
-                          backgroundColor: Colors.red),
-                    );
-                  }
-                } finally {
-                  if (mounted) setState(() => _addingToAll = false);
-                }
-              },
-              child: const Text('Add to All'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  final List<String> _divisions = ['All', 'Osteon', 'Ceflon', 'Generic'];
 
   @override
   Widget build(BuildContext context) {
-    final bool showingStockist = _selectedStockistView != 'overall';
-
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Stock Management'),
+        title: const Text('Product Management'),
         actions: [
-          // "Add to all stockists" button — only icon, no add-product duplicate
-          _addingToAll
-              ? const Padding(
-            padding: EdgeInsets.all(12),
-            child: SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                    strokeWidth: 2, color: Colors.white)),
-          )
-              : IconButton(
-            icon: const Icon(Icons.group_add),
-            tooltip: 'Add stock to all stockists',
-            onPressed: () => _showAddStockToAllDialog(context),
-          ),
           IconButton(
             icon: const Icon(Icons.add),
             tooltip: 'Add new product',
@@ -3633,95 +3048,18 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
       ),
       body: Column(
         children: [
-          // ── Stockist selector ──────────────────────────────
-          _loadingStockists
-              ? const Padding(
-            padding: EdgeInsets.all(16),
-            child: LinearProgressIndicator(),
-          )
-              : Container(
-            margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-            padding: const EdgeInsets.symmetric(
-                horizontal: 12, vertical: 4),
-            decoration: BoxDecoration(
-              color: showingStockist
-                  ? Colors.teal.shade50
-                  : Colors.blue.shade50,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                  color: showingStockist
-                      ? Colors.teal.shade200
-                      : Colors.blue.shade200),
-            ),
-            child: Row(children: [
-              Icon(
-                  showingStockist
-                      ? Icons.store
-                      : Icons.inventory_2,
-                  color: showingStockist
-                      ? Colors.teal
-                      : Colors.blue,
-                  size: 20),
-              const SizedBox(width: 8),
-              Expanded(
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: _selectedStockistView,
-                    isExpanded: true,
-                    items: [
-                      const DropdownMenuItem(
-                        value: 'overall',
-                        child: Text(
-                          'Overall (All Products)',
-                          style: TextStyle(
-                              fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                      // Only real stockists appear here (admin excluded
-                      // because _loadStockists filters role == 'stockist')
-                      ..._stockists.map((s) => DropdownMenuItem(
-                        value: s['uid'] as String,
-                        child: Text(
-                            '${s['name']}${s['city'] != '' ? ' (${s['city']})' : ''}'),
-                      )),
-                    ],
-                    onChanged: (val) {
-                      if (val == null) return;
-                      setState(() {
-                        _selectedStockistView = val;
-                        if (val == 'overall') {
-                          _selectedStockistLabel =
-                          'Overall (Products)';
-                          _stockistStockData = {};
-                        } else {
-                          final s = _stockists.firstWhere(
-                                  (x) => x['uid'] == val);
-                          _selectedStockistLabel =
-                          s['name'] as String;
-                          _loadStockistStock(val);
-                        }
-                      });
-                    },
-                  ),
-                ),
-              ),
-            ]),
-          ),
-
-          // ── Search ─────────────────────────────────────────
+          // ── Search ──────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
             child: TextField(
-              onChanged: (val) =>
-                  setState(() => _searchQuery = val.toLowerCase()),
+              onChanged: (val) => setState(() => _searchQuery = val.toLowerCase()),
               decoration: InputDecoration(
                 hintText: 'Search products…',
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: _searchQuery.isNotEmpty
                     ? IconButton(
                   icon: const Icon(Icons.clear),
-                  onPressed: () =>
-                      setState(() => _searchQuery = ''),
+                  onPressed: () => setState(() => _searchQuery = ''),
                 )
                     : null,
               ),
@@ -3729,7 +3067,7 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
           ),
           const SizedBox(height: 4),
 
-          // ── Division chips ──────────────────────────────────
+          // ── Division chips ─────────────────────────────────
           SizedBox(
             height: 40,
             child: ListView.builder(
@@ -3744,10 +3082,8 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
                   child: FilterChip(
                     label: Text(div),
                     selected: isSelected,
-                    onSelected: (_) =>
-                        setState(() => _filterDivision = div),
-                    selectedColor:
-                    const Color(0xFF1565C0).withOpacity(0.2),
+                    onSelected: (_) => setState(() => _filterDivision = div),
+                    selectedColor: const Color(0xFF1565C0).withOpacity(0.2),
                     checkmarkColor: const Color(0xFF1565C0),
                   ),
                 );
@@ -3756,76 +3092,7 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
           ),
           const SizedBox(height: 8),
 
-          // ── Summary bar ─────────────────────────────────────
-          StreamBuilder<QuerySnapshot>(
-            stream: _db.collection('products').snapshots(),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) return const SizedBox();
-              final docs = snapshot.data!.docs;
-
-              if (showingStockist && _loadingStockistStock) {
-                return const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 12),
-                  child: LinearProgressIndicator(),
-                );
-              }
-
-              int total = docs.length;
-              int lowStock = 0;
-              int outOfStock = 0;
-
-              if (showingStockist) {
-                for (final d in docs) {
-                  final qty = _stockistStockData[d.id] ?? 0;
-                  if (qty == 0) {
-                    outOfStock++;
-                  } else if (qty <=
-                      (((d.data() as Map<String, dynamic>)['minStock']
-                      as num?)
-                          ?.toInt() ??
-                          10)) {
-                    lowStock++;
-                  }
-                }
-              } else {
-                // Overall view: use product-level stock field
-                lowStock = docs.where((d) {
-                  final data = d.data() as Map<String, dynamic>;
-                  final stock = (data['stock'] as num?)?.toInt() ?? 0;
-                  final minStock =
-                      (data['minStock'] as num?)?.toInt() ?? 10;
-                  return stock <= minStock && stock > 0;
-                }).length;
-                outOfStock = docs.where((d) {
-                  final data = d.data() as Map<String, dynamic>;
-                  return ((data['stock'] as num?)?.toInt() ?? 0) == 0;
-                }).length;
-              }
-
-              return Container(
-                margin: const EdgeInsets.symmetric(horizontal: 12),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.grey.shade200),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    _summaryItem('Total', '$total', Colors.blue),
-                    _summaryItem(
-                        'Low Stock', '$lowStock', Colors.orange),
-                    _summaryItem(
-                        'Out of Stock', '$outOfStock', Colors.red),
-                  ],
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 8),
-
-          // ── Product list ────────────────────────────────────
+          // ── Product list ─────────────────────────────────
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: _db
@@ -3841,50 +3108,34 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
                     child: Padding(
                       padding: const EdgeInsets.all(24),
                       child: Text('Error: ${snapshot.error}',
-                          style:
-                          const TextStyle(color: Colors.red)),
+                          style: const TextStyle(color: Colors.red)),
                     ),
                   );
                 }
-                if (!snapshot.hasData ||
-                    snapshot.data!.docs.isEmpty) {
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
                   return Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.inventory_2_outlined,
-                            size: 80, color: Colors.grey.shade300),
+                        Icon(Icons.inventory_2_outlined, size: 80, color: Colors.grey.shade300),
                         const SizedBox(height: 16),
                         Text('No products added yet',
-                            style: TextStyle(
-                                color: Colors.grey.shade500,
-                                fontSize: 16)),
+                            style: TextStyle(color: Colors.grey.shade500, fontSize: 16)),
                         const SizedBox(height: 8),
-                        Text('Tap + Add Product to get started',
-                            style: TextStyle(
-                                color: Colors.grey.shade400,
-                                fontSize: 13)),
+                        Text('Tap + to get started',
+                            style: TextStyle(color: Colors.grey.shade400, fontSize: 13)),
                       ],
                     ),
                   );
                 }
 
-                // Stockist-loading overlay while stock data arrives
-                if (showingStockist && _loadingStockistStock) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
                 var products = snapshot.data!.docs.where((doc) {
-                  final data = doc.data() as Map<String, dynamic>;
-                  final name =
-                  (data['name'] ?? '').toString().toLowerCase();
-                  final code =
-                  (data['code'] ?? '').toString().toLowerCase();
-                  final division =
-                  (data['division'] ?? '').toString();
-                  final matchesSearch = _searchQuery.isEmpty ||
-                      name.contains(_searchQuery) ||
-                      code.contains(_searchQuery);
+                  final data     = doc.data() as Map<String, dynamic>;
+                  final name     = (data['name'] ?? '').toString().toLowerCase();
+                  final code     = (data['code'] ?? '').toString().toLowerCase();
+                  final division = (data['division'] ?? '').toString();
+                  final matchesSearch  = _searchQuery.isEmpty ||
+                      name.contains(_searchQuery) || code.contains(_searchQuery);
                   final matchesDivision = _filterDivision == 'All' ||
                       division == _filterDivision;
                   return matchesSearch && matchesDivision;
@@ -3893,9 +3144,7 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
                 if (products.isEmpty) {
                   return Center(
                     child: Text('No products found',
-                        style: TextStyle(
-                            color: Colors.grey.shade500,
-                            fontSize: 16)),
+                        style: TextStyle(color: Colors.grey.shade500, fontSize: 16)),
                   );
                 }
 
@@ -3903,28 +3152,8 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   itemCount: products.length,
                   itemBuilder: (context, index) {
-                    final data =
-                    products[index].data() as Map<String, dynamic>;
+                    final data  = products[index].data() as Map<String, dynamic>;
                     final docId = products[index].id;
-
-                    if (showingStockist) {
-                      final stockistQty =
-                          _stockistStockData[docId] ?? 0;
-                      final overriddenData =
-                      Map<String, dynamic>.from(data);
-                      overriddenData['stock'] = stockistQty;
-                      return _ProductCard(
-                        key: ValueKey('$docId-$stockistQty'), // force rebuild on qty change
-                        data: overriddenData,
-                        docId: docId,
-                        isAdmin: true,
-                        stockistLabel: _selectedStockistLabel,
-                        stockistUid: _selectedStockistView,
-                        onStockistStockUpdated: _onStockistStockUpdated, // ← callback
-                      );
-                    }
-
-                    // Overall view: normal product-level stock, no stockist context
                     return _ProductCard(
                       key: ValueKey(docId),
                       data: data,
@@ -3940,22 +3169,8 @@ class _AdminStockScreenState extends State<AdminStockScreen> {
       ),
     );
   }
-
-  Widget _summaryItem(String label, String value, Color color) {
-    return Column(
-      children: [
-        Text(value,
-            style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: color)),
-        Text(label,
-            style:
-            const TextStyle(fontSize: 11, color: Colors.grey)),
-      ],
-    );
-  }
 }
+
 
 // ─────────────────────────────────────────
 // PRODUCT CARD
@@ -3964,18 +3179,12 @@ class _ProductCard extends StatefulWidget {
   final Map<String, dynamic> data;
   final String docId;
   final bool isAdmin;
-  final String? stockistLabel;
-  final String? stockistUid;
-  final void Function(String productId, int newQty)? onStockistStockUpdated;
 
   const _ProductCard({
     super.key,
     required this.data,
     required this.docId,
     required this.isAdmin,
-    this.stockistLabel,
-    this.stockistUid,
-    this.onStockistStockUpdated,
   });
 
   @override
@@ -3983,52 +3192,39 @@ class _ProductCard extends StatefulWidget {
 }
 
 class _ProductCardState extends State<_ProductCard> {
-  bool _menuBusy = false; // prevent double popup actions
+  bool _menuBusy = false;
 
   Color _divisionColor(String division) {
     switch (division) {
-      case 'Ortho':
-        return Colors.blue;
-      case 'Gynec':
-        return Colors.pink;
-      default:
-        return Colors.green;
+      case 'Osteon': return Colors.blue;
+      case 'Ceflon': return Colors.teal;
+      default:       return Colors.green;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final division = widget.data['division'] ?? 'General';
-    final color = _divisionColor(division);
-    final stock = (widget.data['stock'] as num?)?.toInt() ?? 0;
-    final minStock = (widget.data['minStock'] as num?)?.toInt() ?? 10;
-    final isOutOfStock = stock == 0;
-    final isLowStock = stock > 0 && stock <= minStock;
-
-    Color stockColor = Colors.green;
-    String stockLabel = 'In Stock';
-    if (isOutOfStock) {
-      stockColor = Colors.red;
-      stockLabel = 'Out of Stock';
-    } else if (isLowStock) {
-      stockColor = Colors.orange;
-      stockLabel = 'Low Stock';
-    }
+    final division = widget.data['division'] ?? 'Generic';
+    final color    = _divisionColor(division);
+    final category = widget.data['category'] ?? '';
+    final mrp      = widget.data['mrp'] ?? widget.data['price'] ?? '—';
+    final ptr      = widget.data['ptr'] ?? '—';
+    final pts      = widget.data['pts'] ?? '—';
+    final packSize = widget.data['packSize'] ?? '';
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
-      shape:
-      RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // ── Header row ───────────────────────────────
             Row(
               children: [
                 Container(
-                  width: 48,
-                  height: 48,
+                  width: 48, height: 48,
                   decoration: BoxDecoration(
                     color: color.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(10),
@@ -4041,37 +3237,30 @@ class _ProductCardState extends State<_ProductCard> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(widget.data['name'] ?? 'Unknown',
-                          style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15)),
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                       Text('Code: ${widget.data['code'] ?? 'N/A'}',
-                          style: TextStyle(
-                              color: Colors.grey.shade500,
-                              fontSize: 12)),
+                          style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+                      if (packSize.isNotEmpty)
+                        Text('Pack: $packSize',
+                            style: TextStyle(color: Colors.grey.shade400, fontSize: 11)),
                     ],
                   ),
                 ),
                 if (widget.isAdmin)
                   _menuBusy
-                      ? const SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2))
+                      ? const SizedBox(width: 24, height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2))
                       : PopupMenuButton(
                     icon: const Icon(Icons.more_vert),
                     itemBuilder: (_) => [
-                      const PopupMenuItem(
-                          value: 'stock',
-                          child: Text('Update Stock')),
-                      const PopupMenuItem(
-                          value: 'edit',
-                          child: Text('Edit Product')),
-                      const PopupMenuItem(
-                          value: 'delete',
-                          child: Text('Delete',
-                              style: TextStyle(
-                                  color: Colors.red))),
+                      const PopupMenuItem(value: 'edit', child: Row(children: [
+                        Icon(Icons.edit, size: 16, color: Colors.orange),
+                        SizedBox(width: 8), Text('Edit Product'),
+                      ])),
+                      const PopupMenuItem(value: 'delete', child: Row(children: [
+                        Icon(Icons.delete, size: 16, color: Colors.red),
+                        SizedBox(width: 8), Text('Delete', style: TextStyle(color: Colors.red)),
+                      ])),
                     ],
                     onSelected: (value) async {
                       if (_menuBusy) return;
@@ -4080,55 +3269,32 @@ class _ProductCardState extends State<_ProductCard> {
                           context,
                           MaterialPageRoute(
                             builder: (_) => AddProductScreen(
-                                existingData: widget.data,
-                                docId: widget.docId),
+                                existingData: widget.data, docId: widget.docId),
                           ),
                         );
-                      } else if (value == 'stock') {
-                        if (widget.stockistUid != null) {
-                          _showUpdateStockistStockDialog(
-                              context,
-                              widget.docId,
-                              stock,
-                              widget.stockistUid!);
-                        } else {
-                          _showUpdateStockDialog(
-                              context, widget.docId, stock);
-                        }
                       } else if (value == 'delete') {
                         final confirm = await showDialog<bool>(
                           context: context,
                           builder: (_) => AlertDialog(
-                            title:
-                            const Text('Delete Product'),
-                            content: Text(
-                                'Delete ${widget.data['name']}?'),
+                            title: const Text('Delete Product'),
+                            content: Text('Delete ${widget.data['name']}?'),
                             actions: [
                               TextButton(
-                                  onPressed: () => Navigator.pop(
-                                      context, false),
-                                  child:
-                                  const Text('Cancel')),
+                                  onPressed: () => Navigator.pop(context, false),
+                                  child: const Text('Cancel')),
                               TextButton(
-                                  onPressed: () => Navigator.pop(
-                                      context, true),
+                                  onPressed: () => Navigator.pop(context, true),
                                   child: const Text('Delete',
-                                      style: TextStyle(
-                                          color: Colors.red))),
+                                      style: TextStyle(color: Colors.red))),
                             ],
                           ),
                         );
                         if (confirm == true && mounted) {
                           setState(() => _menuBusy = true);
                           try {
-                            await _db
-                                .collection('products')
-                                .doc(widget.docId)
-                                .delete();
+                            await _db.collection('products').doc(widget.docId).delete();
                           } finally {
-                            if (mounted)
-                              setState(() =>
-                              _menuBusy = false);
+                            if (mounted) setState(() => _menuBusy = false);
                           }
                         }
                       }
@@ -4139,55 +3305,39 @@ class _ProductCardState extends State<_ProductCard> {
             const SizedBox(height: 10),
             const Divider(height: 1),
             const SizedBox(height: 10),
+
+            // ── Tags + pricing row ───────────────────────────
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
                     color: color.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(division,
-                      style: TextStyle(
-                          color: color,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600)),
+                      style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w600)),
                 ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: stockColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
+                if (category.isNotEmpty) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.purple.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(category,
+                        style: const TextStyle(color: Colors.purple, fontSize: 11)),
                   ),
-                  child: Text(stockLabel,
-                      style: TextStyle(
-                          color: stockColor,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600)),
-                ),
+                ],
                 const Spacer(),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text('$stock units',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: stockColor,
-                            fontSize: 14)),
-                    Text(
-                        '₹${widget.data['price'] ?? '0'} | ${widget.data['packSize'] ?? 'N/A'}',
-                        style: TextStyle(
-                            color: Colors.grey.shade500,
-                            fontSize: 11)),
-                    if (widget.stockistLabel != null)
-                      Text(widget.stockistLabel!,
-                          style: TextStyle(
-                              color: Colors.teal.shade700,
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600)),
+                    Text('MRP: ₹$mrp',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    Text('PTR: ₹$ptr  |  PTS: ₹$pts',
+                        style: TextStyle(color: Colors.grey.shade500, fontSize: 11)),
                   ],
                 ),
               ],
@@ -4197,176 +3347,9 @@ class _ProductCardState extends State<_ProductCard> {
       ),
     );
   }
-
-  void _showUpdateStockDialog(
-      BuildContext context, String docId, int currentStock) {
-    final controller =
-    TextEditingController(text: '$currentStock');
-    bool saving = false;
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => StatefulBuilder(
-        builder: (ctx, setD) => AlertDialog(
-          title: const Text('Update Stock'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Current stock: $currentStock units',
-                  style: const TextStyle(color: Colors.grey)),
-              const SizedBox(height: 12),
-              TextField(
-                controller: controller,
-                keyboardType: TextInputType.number,
-                enabled: !saving,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: 'New Stock Quantity',
-                  prefixIcon: Icon(Icons.inventory),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-                onPressed:
-                saving ? null : () => Navigator.pop(ctx),
-                child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: saving
-                  ? null
-                  : () async {
-                final newStock =
-                    int.tryParse(controller.text.trim()) ??
-                        0;
-                setD(() => saving = true);
-                try {
-                  await _db
-                      .collection('products')
-                      .doc(docId)
-                      .update({'stock': newStock});
-                  if (ctx.mounted) Navigator.pop(ctx);
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                          content: Text('✅ Stock updated!'),
-                          backgroundColor: Colors.green),
-                    );
-                  }
-                } catch (e) {
-                  setD(() => saving = false);
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                          content:
-                          Text('❌ Failed. Try again.'),
-                          backgroundColor: Colors.red),
-                    );
-                  }
-                }
-              },
-              child: saving
-                  ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.white))
-                  : const Text('Update'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showUpdateStockistStockDialog(BuildContext context,
-      String docId, int currentStock, String stockistUid) {
-    final controller =
-    TextEditingController(text: '$currentStock');
-    bool saving = false;
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => StatefulBuilder(
-        builder: (ctx, setD) => AlertDialog(
-          title: const Text('Update Stockist Stock'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Current stock: $currentStock units',
-                  style: const TextStyle(color: Colors.grey)),
-              const SizedBox(height: 12),
-              TextField(
-                controller: controller,
-                keyboardType: TextInputType.number,
-                enabled: !saving,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: 'New Stock Quantity',
-                  prefixIcon: Icon(Icons.inventory),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-                onPressed:
-                saving ? null : () => Navigator.pop(ctx),
-                child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: saving
-                  ? null
-                  : () async {
-                final newStock =
-                    int.tryParse(controller.text.trim()) ??
-                        0;
-                setD(() => saving = true);
-                try {
-                  await _db
-                      .collection('stockist_stock')
-                      .doc(stockistUid)
-                      .set(
-                    {docId: newStock},
-                    SetOptions(merge: true),
-                  );
-                  // ← Immediately update parent list without re-fetching
-                  widget.onStockistStockUpdated
-                      ?.call(docId, newStock);
-                  if (ctx.mounted) Navigator.pop(ctx);
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                          content: Text(
-                              '✅ Stockist stock updated!'),
-                          backgroundColor: Colors.green),
-                    );
-                  }
-                } catch (e) {
-                  setD(() => saving = false);
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                          content:
-                          Text('❌ Failed. Try again.'),
-                          backgroundColor: Colors.red),
-                    );
-                  }
-                }
-              },
-              child: saving
-                  ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.white))
-                  : const Text('Update'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
+
+
 // ─────────────────────────────────────────
 // ADMIN PROFILE SCREEN
 // ─────────────────────────────────────────
@@ -5570,43 +4553,48 @@ class AddProductScreen extends StatefulWidget {
 }
 
 class _AddProductScreenState extends State<AddProductScreen> {
-  final _nameController        = TextEditingController();
-  final _codeController        = TextEditingController();
-  final _priceController       = TextEditingController();
-  final _packSizeController    = TextEditingController();
-  final _stockController       = TextEditingController();
-  final _minStockController    = TextEditingController();
-  final _descriptionController = TextEditingController();
+  final _nameController     = TextEditingController();
+  final _codeController     = TextEditingController();
+  final _mrpController      = TextEditingController();
+  final _ptrController      = TextEditingController();
+  final _ptsController      = TextEditingController();
+  final _packSizeController = TextEditingController();
 
-  String _selectedDivision = 'Ortho';
-  bool _isLoading = false;
+  String _selectedDivision = 'Osteon';
+  String _selectedCategory = 'Tablet';
+  bool _isLoading  = false;
   String _errorMessage = '';
   bool get _isEditing => widget.existingData != null;
-  final List<String> _divisions = ['Ortho', 'Gynec', 'General'];
+
+  final List<String> _divisions  = ['Osteon', 'Ceflon', 'Generic'];
+  final List<String> _categories = [
+    'Tablet', 'Capsule', 'Cachet', 'Syrup', 'Dry Syrup',
+    'Gel', 'Soft Gel', 'Injectable', 'Ointment', 'Other'
+  ];
 
   @override
   void initState() {
     super.initState();
     if (_isEditing) {
       final d = widget.existingData!;
-      _nameController.text        = d['name']        ?? '';
-      _codeController.text        = d['code']        ?? '';
-      _priceController.text       = '${d['price']    ?? ''}';
-      _packSizeController.text    = d['packSize']     ?? '';
-      _stockController.text       = '${d['stock']    ?? 0}';
-      _minStockController.text    = '${d['minStock'] ?? 10}';
-      _descriptionController.text = d['description'] ?? '';
-      _selectedDivision           = d['division']    ?? 'Ortho';
+      _nameController.text     = d['name']     ?? '';
+      _codeController.text     = d['code']     ?? '';
+      _mrpController.text      = '${d['mrp']  ?? ''}';
+      _ptrController.text      = '${d['ptr']  ?? ''}';
+      _ptsController.text      = '${d['pts']  ?? ''}';
+      _packSizeController.text = d['packSize'] ?? '';
+      _selectedDivision        = d['division'] ?? 'Osteon';
+      _selectedCategory        = d['category'] ?? 'Tablet';
     }
   }
 
   Future<void> _saveProduct() async {
     final name     = _nameController.text.trim();
     final code     = _codeController.text.trim();
-    final price    = _priceController.text.trim();
+    final mrp      = _mrpController.text.trim();
+    final ptr      = _ptrController.text.trim();
+    final pts      = _ptsController.text.trim();
     final packSize = _packSizeController.text.trim();
-    final stock    = int.tryParse(_stockController.text.trim())    ?? 0;
-    final minStock = int.tryParse(_minStockController.text.trim()) ?? 10;
 
     if (name.isEmpty || code.isEmpty) {
       setState(() => _errorMessage = 'Product name and code are required.');
@@ -5617,15 +4605,15 @@ class _AddProductScreenState extends State<AddProductScreen> {
 
     try {
       final data = {
-        'name':        name,
-        'code':        code,
-        'price':       price,
-        'packSize':    packSize,
-        'stock':       stock,
-        'minStock':    minStock,
-        'division':    _selectedDivision,
-        'description': _descriptionController.text.trim(),
-        'updatedAt':   FieldValue.serverTimestamp(),
+        'name':      name,
+        'code':      code,
+        'mrp':       mrp,
+        'ptr':       ptr,
+        'pts':       pts,
+        'packSize':  packSize,
+        'category':  _selectedCategory,
+        'division':  _selectedDivision,
+        'updatedAt': FieldValue.serverTimestamp(),
       };
 
       if (_isEditing) {
@@ -5652,11 +4640,10 @@ class _AddProductScreenState extends State<AddProductScreen> {
   void dispose() {
     _nameController.dispose();
     _codeController.dispose();
-    _priceController.dispose();
+    _mrpController.dispose();
+    _ptrController.dispose();
+    _ptsController.dispose();
     _packSizeController.dispose();
-    _stockController.dispose();
-    _minStockController.dispose();
-    _descriptionController.dispose();
     super.dispose();
   }
 
@@ -5669,6 +4656,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // ── Division selector ──────────────────────────
             const Text('Division', style: TextStyle(fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
             Row(
@@ -5676,9 +4664,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
                 final isSelected = _selectedDivision == div;
                 Color color;
                 switch (div) {
-                  case 'Ortho': color = Colors.blue; break;
-                  case 'Gynec': color = Colors.pink; break;
-                  default:      color = Colors.green;
+                  case 'Osteon': color = Colors.blue;  break;
+                  case 'Ceflon': color = Colors.teal;  break;
+                  default:       color = Colors.green;
                 }
                 return Expanded(
                   child: Padding(
@@ -5709,64 +4697,52 @@ class _AddProductScreenState extends State<AddProductScreen> {
               }).toList(),
             ),
             const SizedBox(height: 16),
-            _field('Product Name *', _nameController, Icons.medication,    'e.g. CalciMax Tablet'),
-            _field('Product Code *', _codeController, Icons.qr_code,       'e.g. ARK-001'),
-            _field('Price (₹)',      _priceController, Icons.currency_rupee,'e.g. 150', type: TextInputType.number),
-            _field('Pack Size',      _packSizeController, Icons.inventory_2,'e.g. 10x10, 30ml'),
-            _field('Description',   _descriptionController, Icons.description, 'Optional', maxLines: 2),
+
+            // ── Category dropdown ──────────────────────────
+            const Text('Category', style: TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            DropdownButtonFormField<String>(
+              value: _selectedCategory,
+              decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.category),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+              ),
+              items: _categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+              onChanged: (v) => setState(() => _selectedCategory = v ?? 'Tablet'),
+            ),
+            const SizedBox(height: 16),
+
+            // ── Text fields ────────────────────────────────
+            _field('Product Name *',  _nameController,     Icons.medication,      'e.g. CalciMax'),
+            _field('Product Code *',  _codeController,     Icons.qr_code,         'e.g. ARK-001'),
+            _field('Pack Size',       _packSizeController, Icons.inventory_2,     'e.g. 10x10, 30ml'),
+
+            // ── Pricing fields ─────────────────────────────
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: Colors.blue.shade50,
+                color: Colors.green.shade50,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.blue.shade200),
+                border: Border.all(color: Colors.green.shade200),
               ),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 const Row(children: [
-                  Icon(Icons.inventory, color: Colors.blue),
+                  Icon(Icons.currency_rupee, color: Colors.green),
                   SizedBox(width: 8),
-                  Text('Stock Settings',
-                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+                  Text('Pricing', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
                 ]),
                 const SizedBox(height: 12),
                 Row(children: [
-                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    const Text('Current Stock',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 4),
-                    TextField(
-                      controller: _stockController,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        hintText: '0',
-                        prefixIcon: Icon(Icons.numbers, size: 18),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                      ),
-                    ),
-                  ])),
-                  const SizedBox(width: 12),
-                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    const Text('Low Stock Alert',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 4),
-                    TextField(
-                      controller: _minStockController,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        hintText: '10',
-                        prefixIcon: Icon(Icons.warning_amber, size: 18),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                      ),
-                    ),
-                  ])),
+                  Expanded(child: _pricingField('MRP', _mrpController, '₹ MRP')),
+                  const SizedBox(width: 10),
+                  Expanded(child: _pricingField('PTR', _ptrController, '₹ to Retailer')),
+                  const SizedBox(width: 10),
+                  Expanded(child: _pricingField('PTS', _ptsController, '₹ to Stockist')),
                 ]),
-                const SizedBox(height: 8),
-                const Text(
-                  '💡 When stock falls to or below this number, it will be marked as low stock.',
-                  style: TextStyle(fontSize: 11, color: Colors.blue),
-                ),
               ]),
             ),
+
             const SizedBox(height: 20),
             if (_errorMessage.isNotEmpty)
               Container(
@@ -5780,14 +4756,17 @@ class _AddProductScreenState extends State<AddProductScreen> {
                 child: Text(_errorMessage,
                     style: const TextStyle(color: Colors.red, fontSize: 13)),
               ),
-            _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : ElevatedButton.icon(
-              onPressed: _saveProduct,
-              icon: Icon(_isEditing ? Icons.save : Icons.add),
-              label: Text(
-                _isEditing ? 'Update Product' : 'Add Product',
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            SizedBox(
+              width: double.infinity,
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : ElevatedButton.icon(
+                onPressed: _saveProduct,
+                icon: Icon(_isEditing ? Icons.save : Icons.add),
+                label: Text(
+                  _isEditing ? 'Update Product' : 'Add Product',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
               ),
             ),
             const SizedBox(height: 30),
@@ -5814,6 +4793,21 @@ class _AddProductScreenState extends State<AddProductScreen> {
         const SizedBox(height: 14),
       ],
     );
+  }
+
+  Widget _pricingField(String label, TextEditingController ctrl, String hint) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+      const SizedBox(height: 4),
+      TextField(
+        controller: ctrl,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: InputDecoration(
+          hintText: hint,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        ),
+      ),
+    ]);
   }
 }
 
@@ -6699,3 +5693,639 @@ class _GpsOverrideCardState extends State<_GpsOverrideCard> {
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADMIN CONVERSION SCREEN
+// Admin reviews MR conversion requests, sets approved points, payment date,
+// optional reply note, then approves or rejects.
+// ─────────────────────────────────────────────────────────────────────────────
+class AdminConversionScreen extends StatefulWidget {
+  const AdminConversionScreen({super.key});
+
+  @override
+  State<AdminConversionScreen> createState() => _AdminConversionScreenState();
+}
+
+class _AdminConversionScreenState extends State<AdminConversionScreen>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Color _tierColor(String tier) {
+    switch (tier) {
+      case 'Premium':    return Colors.purple;
+      case 'Super Core': return Colors.orange;
+      case 'Core':       return Colors.teal;
+      default:           return Colors.grey;
+    }
+  }
+
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'approved': return Colors.green;
+      case 'rejected': return Colors.red;
+      default:         return Colors.orange;
+    }
+  }
+
+  String _fmt(dynamic val) {
+    if (val == null) return '—';
+    final n = double.tryParse(val.toString());
+    if (n == null) return val.toString();
+    return n % 1 == 0 ? n.toInt().toString() : n.toStringAsFixed(2);
+  }
+
+  String _formatDate(DateTime dt) {
+    final months = ['Jan','Feb','Mar','Apr','May','Jun',
+                    'Jul','Aug','Sep','Oct','Nov','Dec'];
+    return '${dt.day} ${months[dt.month - 1]} ${dt.year}';
+  }
+
+  String _dateKey(DateTime dt) =>
+      '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+
+  void _showReplyDialog(String docId, Map<String, dynamic> data) {
+    final pointsCtrl = TextEditingController(
+        text: data['points']?.toString() ?? '');
+    final replyCtrl  = TextEditingController(
+        text: data['adminReply']?.toString() ?? '');
+    DateTime? selectedDate;
+    bool isApproving = true;
+    bool isSaving = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setLocalState) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(children: [
+            const Icon(Icons.trending_up, color: Color(0xFF7B1FA2)),
+            const SizedBox(width: 8),
+            const Expanded(child: Text('Review Conversion')),
+          ]),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Request summary
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.purple.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(data['mrName'] ?? '—',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: 13)),
+                      const SizedBox(height: 4),
+                      Text(
+                          '${data['doctorName'] ?? '—'} → ${data['convertTo'] ?? '—'}',
+                          style: TextStyle(
+                              color: Colors.grey.shade700, fontSize: 12)),
+                      Text('Requested: ₹${_fmt(data['points'])} pts',
+                          style: TextStyle(
+                              color: Colors.grey.shade600, fontSize: 12)),
+                      Text(
+                          'Expected Order: ₹${_fmt(data['expectedOrderAmount'])}',
+                          style: TextStyle(
+                              color: Colors.grey.shade600, fontSize: 12)),
+                      if ((data['notes'] as String?)?.isNotEmpty == true)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text('Note: ${data['notes']}',
+                              style: TextStyle(
+                                  color: Colors.grey.shade500,
+                                  fontSize: 11,
+                                  fontStyle: FontStyle.italic)),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                // Approved Points
+                const Text('Approved Points (₹)',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: pointsCtrl,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    hintText: 'e.g. 500',
+                    prefixText: '₹ ',
+                    prefixIcon: Icon(Icons.stars_outlined),
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                // Payment Date
+                const Text('Payment Date',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                const SizedBox(height: 6),
+                GestureDetector(
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: ctx,
+                      initialDate: DateTime.now()
+                          .add(const Duration(days: 7)),
+                      firstDate: DateTime.now(),
+                      lastDate: DateTime.now().add(const Duration(days: 365)),
+                    );
+                    if (picked != null) {
+                      setLocalState(() => selectedDate = picked);
+                    }
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 12),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey.shade400),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(children: [
+                      const Icon(Icons.calendar_today,
+                          size: 18, color: Colors.blue),
+                      const SizedBox(width: 10),
+                      Text(
+                        selectedDate != null
+                            ? _formatDate(selectedDate!)
+                            : 'Tap to select date',
+                        style: TextStyle(
+                          color: selectedDate != null
+                              ? Colors.black87
+                              : Colors.grey,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ]),
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                // Reply message
+                const Text('Reply / Note to MR (Optional)',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: replyCtrl,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    hintText: 'Add a note for the MR...',
+                    prefixIcon: Icon(Icons.message_outlined),
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                // Approve / Reject toggle
+                const Text('Decision',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                const SizedBox(height: 8),
+                Row(children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setLocalState(() => isApproving = true),
+                      child: Container(
+                        padding:
+                            const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: isApproving
+                              ? Colors.green
+                              : Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                              color: isApproving
+                                  ? Colors.green
+                                  : Colors.grey.shade300),
+                        ),
+                        child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.check_circle,
+                                  color: isApproving
+                                      ? Colors.white
+                                      : Colors.grey,
+                                  size: 18),
+                              const SizedBox(width: 6),
+                              Text('Approve',
+                                  style: TextStyle(
+                                      color: isApproving
+                                          ? Colors.white
+                                          : Colors.grey,
+                                      fontWeight: FontWeight.bold)),
+                            ]),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setLocalState(() => isApproving = false),
+                      child: Container(
+                        padding:
+                            const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: !isApproving
+                              ? Colors.red
+                              : Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                              color: !isApproving
+                                  ? Colors.red
+                                  : Colors.grey.shade300),
+                        ),
+                        child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.cancel,
+                                  color: !isApproving
+                                      ? Colors.white
+                                      : Colors.grey,
+                                  size: 18),
+                              const SizedBox(width: 6),
+                              Text('Reject',
+                                  style: TextStyle(
+                                      color: !isApproving
+                                          ? Colors.white
+                                          : Colors.grey,
+                                      fontWeight: FontWeight.bold)),
+                            ]),
+                      ),
+                    ),
+                  ),
+                ]),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isSaving ? null : () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: isSaving
+                  ? null
+                  : () async {
+                      if (isApproving &&
+                          pointsCtrl.text.trim().isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                                content: Text(
+                                    'Please enter approved points.'),
+                                backgroundColor: Colors.red));
+                        return;
+                      }
+                      if (isApproving && selectedDate == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                                content: Text(
+                                    'Please select a payment date.'),
+                                backgroundColor: Colors.red));
+                        return;
+                      }
+                      setLocalState(() => isSaving = true);
+                      try {
+                        await _db
+                            .collection('conversion_requests')
+                            .doc(docId)
+                            .update({
+                          'status': isApproving ? 'approved' : 'rejected',
+                          'adminPoints': isApproving
+                              ? double.tryParse(
+                                  pointsCtrl.text.trim())
+                              : null,
+                          'paymentDate': selectedDate != null
+                              ? _dateKey(selectedDate!)
+                              : null,
+                          'adminReply': replyCtrl.text.trim(),
+                          'reviewedAt': FieldValue.serverTimestamp(),
+                        });
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(isApproving
+                                  ? '✅ Request approved!'
+                                  : '❌ Request rejected.'),
+                              backgroundColor: isApproving
+                                  ? Colors.green
+                                  : Colors.red,
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        setLocalState(() => isSaving = false);
+                      }
+                    },
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: isApproving ? Colors.green : Colors.red),
+              child: isSaving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2))
+                  : Text(isApproving ? 'Approve' : 'Reject'),
+            ),
+          ],
+        );
+      }),
+    );
+  }
+
+  Widget _buildList(String? statusFilter) {
+    Query query = _db
+        .collection('conversion_requests')
+        .orderBy('createdAt', descending: true);
+    if (statusFilter != null) {
+      query = query.where('status', isEqualTo: statusFilter);
+    }
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: query.snapshots(),
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (!snap.hasData || snap.data!.docs.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.trending_up, size: 80, color: Colors.grey.shade300),
+                const SizedBox(height: 16),
+                Text(
+                  statusFilter == 'pending'
+                      ? 'No pending requests'
+                      : 'No conversion requests yet',
+                  style: TextStyle(
+                      color: Colors.grey.shade500, fontSize: 16),
+                ),
+              ],
+            ),
+          );
+        }
+
+        final docs = snap.data!.docs;
+        return ListView.builder(
+          padding: const EdgeInsets.all(12),
+          itemCount: docs.length,
+          itemBuilder: (context, i) {
+            final data = docs[i].data() as Map<String, dynamic>;
+            final docId = docs[i].id;
+            final status = data['status'] as String? ?? 'pending';
+            final mrName = data['mrName'] as String? ?? '—';
+            final doctorName = data['doctorName'] as String? ?? '—';
+            final convertTo = data['convertTo'] as String? ?? '—';
+            final currentTier = data['currentTier'] as String? ?? 'Normal';
+            final points = data['points'];
+            final orderAmt = data['expectedOrderAmount'];
+            final createdAt = data['createdAt'] as Timestamp?;
+            final adminPoints = data['adminPoints'];
+            final paymentDate = data['paymentDate'] as String?;
+            final adminReply = data['adminReply'] as String?;
+
+            final statusColor = _statusColor(status);
+            final toTierColor = _tierColor(convertTo);
+
+            return Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14)),
+              elevation: 2,
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Header
+                    Row(children: [
+                      CircleAvatar(
+                        backgroundColor:
+                            const Color(0xFF7B1FA2).withOpacity(0.12),
+                        child: const Icon(Icons.trending_up,
+                            color: Color(0xFF7B1FA2)),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(mrName,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold, fontSize: 15)),
+                            Text(doctorName,
+                                style: TextStyle(
+                                    color: Colors.grey.shade600, fontSize: 12)),
+                            if (createdAt != null)
+                              Text(_formatDate(createdAt.toDate()),
+                                  style: TextStyle(
+                                      color: Colors.grey.shade400,
+                                      fontSize: 11)),
+                          ],
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: status == 'pending'
+                            ? () => _showReplyDialog(docId, data)
+                            : null,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: statusColor.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                                color: statusColor.withOpacity(0.4)),
+                          ),
+                          child: Text(
+                            status == 'pending'
+                                ? '✏ Review'
+                                : status[0].toUpperCase() +
+                                    status.substring(1),
+                            style: TextStyle(
+                                color: statusColor,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ),
+                    ]),
+                    const SizedBox(height: 10),
+
+                    // ── Tier movement display ─────────────────────────────
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.grey.shade200),
+                      ),
+                      child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            // FROM tier
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: _tierColor(currentTier)
+                                    .withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                    color: _tierColor(currentTier)
+                                        .withOpacity(0.4)),
+                              ),
+                              child: Text(currentTier,
+                                  style: TextStyle(
+                                      color: _tierColor(currentTier),
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12)),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10),
+                              child: Row(children: [
+                                Icon(Icons.arrow_forward,
+                                    size: 18,
+                                    color: toTierColor),
+                              ]),
+                            ),
+                            // TO tier
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: toTierColor.withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                    color: toTierColor.withOpacity(0.4)),
+                              ),
+                              child: Text(convertTo,
+                                  style: TextStyle(
+                                      color: toTierColor,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12)),
+                            ),
+                          ]),
+                    ),
+                    const SizedBox(height: 8),
+                    // Points + order chips
+                    Wrap(spacing: 8, runSpacing: 6, children: [
+                      _chip('MR asks ₹${_fmt(points)}', Colors.blue,
+                          Icons.stars),
+                      _chip('Order ₹${_fmt(orderAmt)}', Colors.green,
+                          Icons.shopping_bag),
+                    ]),
+
+                    // Admin response
+                    if (status != 'pending') ...[
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: statusColor.withOpacity(0.06),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                              color: statusColor.withOpacity(0.25)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (adminPoints != null)
+                              _row('Approved Points',
+                                  '₹${_fmt(adminPoints)}', Colors.blue),
+                            if (paymentDate != null)
+                              _row('Payment Date', paymentDate, Colors.teal),
+                            if (adminReply != null && adminReply.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(adminReply,
+                                    style: TextStyle(
+                                        color: Colors.grey.shade700,
+                                        fontSize: 12)),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _chip(String label, Color color, IconData icon) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 11, color: color),
+          const SizedBox(width: 4),
+          Text(label,
+              style: TextStyle(
+                  color: color, fontSize: 11, fontWeight: FontWeight.w600)),
+        ]),
+      );
+
+  Widget _row(String label, String value, Color color) => Padding(
+        padding: const EdgeInsets.only(bottom: 3),
+        child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          Text(label,
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+          Text(value,
+              style: TextStyle(
+                  fontWeight: FontWeight.bold, color: color, fontSize: 12)),
+        ]),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Conversion Requests'),
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(text: 'Pending'),
+            Tab(text: 'All'),
+          ],
+        ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          _buildList('pending'),
+          _buildList(null),
+        ],
+      ),
+    );
+  }
+}
