@@ -97,23 +97,67 @@ class _AdminMainScreenState extends State<AdminMainScreen> {
           SystemNavigator.pop();
         }
       },
-      child: Scaffold(
-        body: _screens[_currentIndex],
-        bottomNavigationBar: BottomNavigationBar(
-          currentIndex: _currentIndex,
-          onTap: (index) => setState(() => _currentIndex = index),
-          type: BottomNavigationBarType.fixed,
-          selectedItemColor: const Color(0xFF1565C0),
-          unselectedItemColor: Colors.grey,
-          items: const [
-            BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: 'Dashboard'),
-            BottomNavigationBarItem(icon: Icon(Icons.inventory_2), label: 'Stock'),
-            BottomNavigationBarItem(icon: Icon(Icons.shopping_bag), label: 'Orders'),
-            BottomNavigationBarItem(icon: Icon(Icons.badge), label: 'MRs'),
-            BottomNavigationBarItem(icon: Icon(Icons.trending_up), label: 'Conversions'),
-            BottomNavigationBarItem(icon: Icon(Icons.manage_accounts), label: 'Manage'),
-          ],
-        ),
+      child: StreamBuilder<QuerySnapshot>(
+        stream: _db
+            .collection('conversion_requests')
+            .where('status', isEqualTo: 'pending')
+            .snapshots(),
+        builder: (context, convSnap) {
+          final pendingConversions =
+              convSnap.hasData ? convSnap.data!.docs.length : 0;
+
+          Widget _conversionIcon() {
+            if (pendingConversions == 0) {
+              return const Icon(Icons.trending_up);
+            }
+            return Stack(
+              clipBehavior: Clip.none,
+              children: [
+                const Icon(Icons.trending_up),
+                Positioned(
+                  right: -6,
+                  top: -4,
+                  child: Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: const BoxDecoration(
+                      color: Colors.red,
+                      shape: BoxShape.circle,
+                    ),
+                    constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                    child: Text(
+                      pendingConversions > 9 ? '9+' : '$pendingConversions',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }
+
+          return Scaffold(
+            body: _screens[_currentIndex],
+            bottomNavigationBar: BottomNavigationBar(
+              currentIndex: _currentIndex,
+              onTap: (index) => setState(() => _currentIndex = index),
+              type: BottomNavigationBarType.fixed,
+              selectedItemColor: const Color(0xFF1565C0),
+              unselectedItemColor: Colors.grey,
+              items: [
+                const BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: 'Dashboard'),
+                const BottomNavigationBarItem(icon: Icon(Icons.inventory_2), label: 'Stock'),
+                const BottomNavigationBarItem(icon: Icon(Icons.shopping_bag), label: 'Orders'),
+                const BottomNavigationBarItem(icon: Icon(Icons.badge), label: 'MRs'),
+                BottomNavigationBarItem(icon: _conversionIcon(), label: 'Conversions'),
+                const BottomNavigationBarItem(icon: Icon(Icons.manage_accounts), label: 'Manage'),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
@@ -1629,10 +1673,8 @@ class _EditMrScreenState extends State<EditMrScreen> {
   late final TextEditingController _nameController;
   late final TextEditingController _phoneController;
   late final TextEditingController _areaController;
-  String _selectedDivision = 'Osteon';
   bool _isLoading = false;
   String _errorMessage = '';
-  final List<String> _divisions = ['Osteon', 'Ceflon', 'Generic', 'Both'];
 
   @override
   void initState() {
@@ -1640,8 +1682,6 @@ class _EditMrScreenState extends State<EditMrScreen> {
     _nameController  = TextEditingController(text: widget.mrData['name']  ?? '');
     _phoneController = TextEditingController(text: widget.mrData['phone'] ?? '');
     _areaController  = TextEditingController(text: widget.mrData['area']  ?? '');
-    final rawDivision = widget.mrData['division'] ?? 'Osteon';
-    _selectedDivision = _divisions.contains(rawDivision) ? rawDivision : 'Osteon';
   }
 
   @override
@@ -1669,7 +1709,6 @@ class _EditMrScreenState extends State<EditMrScreen> {
         'name':      name,
         'phone':     phone,
         'area':      area,
-        'division':  _selectedDivision,
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
@@ -1710,14 +1749,6 @@ class _EditMrScreenState extends State<EditMrScreen> {
             _field('Full Name', _nameController, Icons.person_outline, 'Enter MR full name'),
             _field('Phone', _phoneController, Icons.phone_outlined, 'Enter phone', type: TextInputType.phone),
             _field('Area', _areaController, Icons.location_on_outlined, 'e.g. Nellore North'),
-            const Text('Division', style: TextStyle(fontWeight: FontWeight.w600)),
-            const SizedBox(height: 6),
-            DropdownButtonFormField<String>(
-              value: _selectedDivision,
-              decoration: const InputDecoration(prefixIcon: Icon(Icons.category_outlined)),
-              items: _divisions.map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
-              onChanged: (val) => setState(() => _selectedDivision = val!),
-            ),
             const SizedBox(height: 20),
             if (_errorMessage.isNotEmpty)
               Container(
@@ -2286,11 +2317,9 @@ class _AddMrScreenState extends State<AddMrScreen> {
   final _phoneController = TextEditingController();
   final _areaController = TextEditingController();
   final _passwordController = TextEditingController();
-  String _selectedDivision = 'Osteon';
   bool _isLoading = false;
   bool _obscurePassword = true;
   String _errorMessage = '';
-  final List<String> _divisions = ['Osteon', 'Ceflon', 'Generic', 'Both'];
 
   Future<void> _createMr() async {
     final name = _nameController.text.trim();
@@ -2345,7 +2374,6 @@ class _AddMrScreenState extends State<AddMrScreen> {
         'email': email,
         'phone': phone,
         'area': area,
-        'division': _selectedDivision,
         'role': 'mr',
         'isActive': true,
         'fixedAllowance': 0,
@@ -2418,21 +2446,6 @@ class _AddMrScreenState extends State<AddMrScreen> {
                 type: TextInputType.phone),
             _field('Area', _areaController, Icons.location_on_outlined,
                 'e.g. Nellore North'),
-            const SizedBox(height: 4),
-            const Text('Division',
-                style: TextStyle(fontWeight: FontWeight.w600)),
-            const SizedBox(height: 6),
-            DropdownButtonFormField<String>(
-              value: _selectedDivision,
-              decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.category_outlined)),
-              items: _divisions
-                  .map((d) =>
-                  DropdownMenuItem(value: d, child: Text(d)))
-                  .toList(),
-              onChanged: (val) =>
-                  setState(() => _selectedDivision = val!),
-            ),
             const SizedBox(height: 14),
             const Text('Password',
                 style: TextStyle(fontWeight: FontWeight.w600)),

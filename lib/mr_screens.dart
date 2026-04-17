@@ -77,15 +77,23 @@ class _MrMainScreenState extends State<MrMainScreen> {
     NotificationService.tabIndexNotifier.value = null;
   }
 
+  // ── Custom channel for FLAG_SECURE (no external package needed) ──
+  static const _secureChannel =
+      MethodChannel('com.arkaformulations/screen_secure');
+
   @override
   void initState() {
     super.initState();
     NotificationService.tabIndexNotifier.addListener(_onNotificationTab);
+    // Block screenshots and screen recording for MR users
+    _secureChannel.invokeMethod('enableSecure');
   }
 
   @override
   void dispose() {
     NotificationService.tabIndexNotifier.removeListener(_onNotificationTab);
+    // Re-enable screenshots when MR logs out / navigates away
+    _secureChannel.invokeMethod('disableSecure');
     super.dispose();
   }
 
@@ -2481,11 +2489,17 @@ Future<void> _loadStockists() async {
   }
 
   Future<void> _submitOrder() async {
+    // Guard against rapid double-taps — disable button immediately
+    if (_submitting) return;
+    setState(() => _submitting = true);
+
     if (_selectedDoctorId == null) {
+      setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a doctor first.')));
       return;
     }
     if (_selectedStockistId == null) {
+      setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a stockist first.')));
       return;
     }
@@ -2495,6 +2509,7 @@ Future<void> _loadStockists() async {
 
     final visitCheck = await db.collection('visits').where('mrId', isEqualTo: uid).where('doctorId', isEqualTo: _selectedDoctorId).where('date', isEqualTo: today).get();
     if (visitCheck.docs.isEmpty) {
+      setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('❌ You must check in with this doctor today before placing an order!'),
         backgroundColor: Colors.red, duration: Duration(seconds: 4),
@@ -2514,6 +2529,7 @@ Future<void> _loadStockists() async {
     }).toList();
 
     if (orderItems.isEmpty) {
+      setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Add at least one product.')));
       return;
     }
@@ -2569,7 +2585,6 @@ Future<void> _loadStockists() async {
       earnedTier = qualifiedTier;
     }
 
-    setState(() => _submitting = true);
     try {
       final userDoc = await db.collection('users').doc(uid).get();
       final mrName = userDoc.data()?['name'] ?? '';
