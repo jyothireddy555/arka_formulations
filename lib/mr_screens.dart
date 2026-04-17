@@ -56,6 +56,7 @@ class MrMainScreen extends StatefulWidget {
 
 class _MrMainScreenState extends State<MrMainScreen> {
   int _currentIndex = 0;
+  final List<int> _tabHistory = []; // tracks previously visited tabs
 
   final List<Widget> _screens = [
     const MrDashboardScreen(),
@@ -103,8 +104,9 @@ class _MrMainScreenState extends State<MrMainScreen> {
       canPop: false,
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
-        if (_currentIndex != 0) {
-          setState(() => _currentIndex = 0);
+        // Go back through tab history before showing exit dialog
+        if (_tabHistory.isNotEmpty) {
+          setState(() => _currentIndex = _tabHistory.removeLast());
           return;
         }
         final shouldExit = await showDialog<bool>(
@@ -133,7 +135,13 @@ class _MrMainScreenState extends State<MrMainScreen> {
         body: _screens[_currentIndex],
         bottomNavigationBar: BottomNavigationBar(
           currentIndex: _currentIndex,
-          onTap: (index) => setState(() => _currentIndex = index),
+          onTap: (index) {
+            if (index == _currentIndex) return; // same tab — ignore
+            setState(() {
+              _tabHistory.add(_currentIndex); // remember where we were
+              _currentIndex = index;
+            });
+          },
           type: BottomNavigationBarType.fixed,
           selectedItemColor: const Color(0xFF1565C0),
           unselectedItemColor: Colors.grey,
