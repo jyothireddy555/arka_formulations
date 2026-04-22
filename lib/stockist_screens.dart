@@ -247,13 +247,15 @@ class _StockistDashboardScreenState extends State<StockistDashboardScreen> {
             const SizedBox(height: 12),
             LayoutBuilder(
               builder: (context, constraints) {
+                final cardWidth = (constraints.maxWidth - 12) / 2;
+                final cardHeight = (cardWidth / 1.5).clamp(90.0, 140.0);
                 return GridView.count(
                   crossAxisCount: 2,
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   crossAxisSpacing: 12,
                   mainAxisSpacing: 12,
-                  childAspectRatio: 1.5,
+                  childAspectRatio: cardWidth / cardHeight,
                   children: [
                     _quickAction(context, 'Manage Orders', Icons.receipt_long, Colors.blue, () {
                       final nav = context.findAncestorStateOfType<_StockistMainScreenState>();
@@ -278,37 +280,69 @@ class _StockistDashboardScreenState extends State<StockistDashboardScreen> {
 
   Widget _statBox({required String label, required IconData icon, required Color color, required int count}) =>
       Container(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         decoration: BoxDecoration(
           color: color.withOpacity(0.1),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: color.withOpacity(0.3)),
         ),
-        child: Row(children: [
-          Icon(icon, color: color, size: 26),
-          const SizedBox(width: 10),
-          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('$count', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color)),
-            Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-          ]),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+          Icon(icon, color: color, size: 24),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text('$count',
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
+                ),
+                Text(label,
+                    style: const TextStyle(fontSize: 10, color: Colors.grey),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1),
+              ],
+            ),
+          ),
         ]),
       );
 
   Widget _statPlaceholder(String label, IconData icon, Color color) =>
       Container(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         decoration: BoxDecoration(
           color: color.withOpacity(0.05),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: color.withOpacity(0.2)),
         ),
-        child: Row(children: [
-          Icon(icon, color: color.withOpacity(0.4), size: 26),
-          const SizedBox(width: 10),
-          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('—', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color.withOpacity(0.4))),
-            Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-          ]),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+          Icon(icon, color: color.withOpacity(0.4), size: 24),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text('—',
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color.withOpacity(0.4))),
+                ),
+                Text(label,
+                    style: const TextStyle(fontSize: 10, color: Colors.grey),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1),
+              ],
+            ),
+          ),
         ]),
       );
 
@@ -321,12 +355,24 @@ class _StockistDashboardScreenState extends State<StockistDashboardScreen> {
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: color.withOpacity(0.3)),
           ),
-          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Icon(icon, color: color, size: 28),
-            const SizedBox(height: 6),
-            Text(label, textAlign: TextAlign.center,
-                style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 13)),
-          ]),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, color: color, size: 26),
+                const SizedBox(height: 4),
+                Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 2,
+                  style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
         ),
       );
 }
@@ -481,17 +527,29 @@ class _StockistOrderTab extends StatelessWidget {
                 title: Text(
                   'Order for ${data['doctorName'] ?? 'Unknown Doctor'}',
                   style: const TextStyle(fontWeight: FontWeight.bold),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
                 ),
                 subtitle: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'MR: ${data['mrName'] ?? 'N/A'}  •  $items item(s)  •  ${data['date'] ?? ''}',
+                      'MR: ${data['mrName'] ?? 'N/A'}',
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
+                    Text(
+                      '$items item(s)  •  ${data['date'] ?? ''}',
+                      style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
                     ),
                     if (data['orderValue'] != null)
                       Text('Value: ₹${data['orderValue']}',
-                          style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                          style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1),
                   ],
                 ),
                 isThreeLine: true,
@@ -659,8 +717,15 @@ class _StockistOrderDetailDialogState extends State<_StockistOrderDetailDialog> 
                     Text(item['productName'] ?? '',
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                     if ((item['mrp'] ?? '').toString().isNotEmpty)
-                      Text('MRP: ₹${item['mrp']}  PTR: ₹${item['ptr']}  PTS: ₹${item['pts']}',
-                          style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: [
+                          _priceTag('MRP', '${item['mrp']}'),
+                          _priceTag('PTR', '${item['ptr']}'),
+                          _priceTag('PTS', '${item['pts']}'),
+                        ],
+                      ),
                   ]),
                 ),
                 Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
@@ -709,6 +774,35 @@ class _StockistOrderDetailDialogState extends State<_StockistOrderDetailDialog> 
             ],
           ]),
         ]),
+      ),
+    );
+  }
+
+  Widget _priceTag(String label, String value) {
+    final display = (value.isEmpty || value == 'null') ? '\u2014' : '\u20b9$value';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: RichText(
+        text: TextSpan(
+          children: [
+            TextSpan(
+              text: '$label: ',
+              style: TextStyle(fontSize: 9, color: Colors.grey.shade600),
+            ),
+            TextSpan(
+              text: display,
+              style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87),
+            ),
+          ],
+        ),
       ),
     );
   }

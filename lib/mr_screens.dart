@@ -397,12 +397,16 @@ class _MrDashboardScreenState extends State<MrDashboardScreen> {
             const SizedBox(height: 12),
             LayoutBuilder(
               builder: (context, constraints) {
+                // Dynamically compute aspect ratio so cards are never too shallow
+                final cardWidth = (constraints.maxWidth - 12) / 2;
+                final cardHeight = (cardWidth / 1.5).clamp(90.0, 140.0);
+                final ratio = cardWidth / cardHeight;
                 return GridView.count(
                   crossAxisCount: 2,
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   crossAxisSpacing: 12, mainAxisSpacing: 12,
-                  childAspectRatio: 1.5,
+                  childAspectRatio: ratio,
                   children: [
                     _quickAction(context, 'Visit Doctor', Icons.add_location, Colors.blue, () {
                       final nav = context.findAncestorStateOfType<_MrMainScreenState>();
@@ -478,19 +482,26 @@ class _MrDashboardScreenState extends State<MrDashboardScreen> {
   Widget _statCard(String label, String value, IconData icon, Color color) =>
       Expanded(
         child: Container(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
             color: color.withOpacity(0.1),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: color.withOpacity(0.3)),
           ),
-          child: Column(children: [
-            Icon(icon, color: color, size: 24),
-            const SizedBox(height: 6),
-            Text(value, style: TextStyle(
-                fontSize: 22, fontWeight: FontWeight.bold, color: color)),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+            Icon(icon, color: color, size: 22),
+            const SizedBox(height: 4),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(value, style: TextStyle(
+                  fontSize: 20, fontWeight: FontWeight.bold, color: color)),
+            ),
             Text(label, textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 2,
+                style: const TextStyle(fontSize: 10, color: Colors.grey)),
           ]),
         ),
       );
@@ -505,22 +516,47 @@ class _MrDashboardScreenState extends State<MrDashboardScreen> {
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: color.withOpacity(0.3)),
           ),
-          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Icon(icon, color: color, size: 28),
-            const SizedBox(height: 6),
-            Text(label, style: TextStyle(
-                color: color, fontWeight: FontWeight.w600, fontSize: 13)),
-          ]),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, color: color, size: 26),
+                const SizedBox(height: 4),
+                Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 2,
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       );
 
   Widget _monthStat(String label, String value, Color color) =>
-      Column(children: [
-        Text(value, style: TextStyle(
-            fontSize: 22, fontWeight: FontWeight.bold, color: color)),
-        Text(label, textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 11, color: Colors.grey)),
-      ]);
+      Expanded(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(value, style: TextStyle(
+                fontSize: 20, fontWeight: FontWeight.bold, color: color)),
+          ),
+          Text(label, textAlign: TextAlign.center,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 2,
+              style: const TextStyle(fontSize: 10, color: Colors.grey)),
+        ]),
+      );
 }
 
 // ─────────────────────────────────────────
@@ -1457,11 +1493,10 @@ class DoctorOrderSummaryScreen extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
-                    _headerStat('Products', '${sorted.length}', Icons.medication),
-                    _headerStat('Total Units', '$totalQty', Icons.inventory_2),
-                    _headerStat('Orders', '${docs.length}', Icons.receipt_long),
+                    Expanded(child: _headerStat('Products', '${sorted.length}', Icons.medication)),
+                    Expanded(child: _headerStat('Total Units', '$totalQty', Icons.inventory_2)),
+                    Expanded(child: _headerStat('Orders', '${docs.length}', Icons.receipt_long)),
                   ],
                 ),
               ),
@@ -1603,16 +1638,22 @@ class DoctorOrderSummaryScreen extends StatelessWidget {
   }
 
   Widget _headerStat(String label, String value, IconData icon) => Column(
+    mainAxisSize: MainAxisSize.min,
     children: [
       Icon(icon, color: Colors.white70, size: 20),
       const SizedBox(height: 4),
-      Text(value,
-          style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 18)),
+      FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(value,
+            style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 18)),
+      ),
       Text(label,
-          style: const TextStyle(color: Colors.white70, fontSize: 11)),
+          style: const TextStyle(color: Colors.white70, fontSize: 11),
+          overflow: TextOverflow.ellipsis,
+          maxLines: 1),
     ],
   );
 }

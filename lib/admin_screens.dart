@@ -328,14 +328,18 @@ class AdminDashboardScreen extends StatelessWidget {
                                         final stockistCount = stockistSnap.hasData
                                             ? stockistSnap.data!.docs.length
                                             : 0;
-                                        return GridView.count(
-                                          crossAxisCount: 2,
-                                          shrinkWrap: true,
-                                          physics:
-                                          const NeverScrollableScrollPhysics(),
-                                          crossAxisSpacing: 12,
-                                          mainAxisSpacing: 12,
-                                          childAspectRatio: 1.6,
+                                        return LayoutBuilder(
+                                          builder: (ctx, gc) {
+                                            final cw = (gc.maxWidth - 10) / 2;
+                                            final ch = (cw / 1.45).clamp(80.0, 130.0);
+                                            return GridView.count(
+                                              crossAxisCount: 2,
+                                              shrinkWrap: true,
+                                              physics:
+                                              const NeverScrollableScrollPhysics(),
+                                              crossAxisSpacing: 10,
+                                              mainAxisSpacing: 10,
+                                              childAspectRatio: cw / ch,
                                           children: [
                                             _statCard('Total MRs', '$mrCount',
                                                 Icons.badge, Colors.blue),
@@ -370,6 +374,8 @@ class AdminDashboardScreen extends StatelessWidget {
                                                 Icons.store,
                                                 Colors.brown),
                                           ],
+                                            );
+                                          },
                                         );
                                       },
                                     );
@@ -393,34 +399,50 @@ class AdminDashboardScreen extends StatelessWidget {
 
   Widget _statCard(
       String label, String value, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: color, size: 28),
-          const SizedBox(width: 10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(value,
-                  style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      color: color)),
-              Text(label,
-                  style: const TextStyle(
-                      fontSize: 11, color: Colors.grey)),
-            ],
-          ),
-        ],
-      ),
-    );
+    return LayoutBuilder(builder: (context, constraints) {
+      final iconSize = constraints.maxWidth < 150 ? 22.0 : 26.0;
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Icon(icon, color: color, size: iconSize),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      value,
+                      style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: color),
+                    ),
+                  ),
+                  Text(
+                    label,
+                    style: const TextStyle(fontSize: 10, color: Colors.grey),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 2,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    });
   }
 }
 
@@ -2659,45 +2681,64 @@ class _OrderTab extends StatelessWidget {
                 title: Text(
                   'Order for ${data['doctorName'] ?? 'Unknown Doctor'}',
                   style: const TextStyle(fontWeight: FontWeight.bold),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
                 ),
                 subtitle: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'MR: ${data['mrName'] ?? 'N/A'}  •  $items item(s)  •  ${data['date'] ?? ''}',
+                      'MR: ${data['mrName'] ?? 'N/A'}',
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
+                    Text(
+                      '$items item(s)  •  ${data['date'] ?? ''}',
+                      style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
                     ),
                     if (data['stockistName'] != null && data['stockistName'].toString().isNotEmpty)
                       Text('Stockist: ${data['stockistName']}',
-                          style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                          style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1),
                     if (data['orderValue'] != null)
                       Text('Value: ₹${data['orderValue']}',
-                          style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                          style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1),
                   ],
                 ),
                 isThreeLine: true,
-                trailing: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: color.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(20),
+                trailing: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 80),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: color.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(status.toUpperCase(),
+                            style: TextStyle(color: color, fontSize: 10,
+                                fontWeight: FontWeight.bold)),
                       ),
-                      child: Text(status.toUpperCase(),
-                          style: TextStyle(color: color, fontSize: 10,
-                              fontWeight: FontWeight.bold)),
-                    ),
-                    if (data['tier'] != null && data['tier'] != 'Normal')
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(data['tier'],
-                            style: TextStyle(color: Colors.purple.shade700, fontSize: 9)),
-                      ),
-                  ],
+                      if (data['tier'] != null && data['tier'] != 'Normal')
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(data['tier'],
+                              style: TextStyle(color: Colors.purple.shade700, fontSize: 9),
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1),
+                        ),
+                    ],
+                  ),
                 ),
                 onTap: () => showDialog(
                   context: context,
@@ -2705,7 +2746,6 @@ class _OrderTab extends StatelessWidget {
                       orderId: doc.id, data: data,
                       statusColor: statusColor),
                 ),
-                // read-only: tap opens detail view only
               ),
             );
           },
@@ -3359,8 +3399,10 @@ class _ProductCardState extends State<_ProductCard> {
             const Divider(height: 1),
             const SizedBox(height: 10),
 
-            // ── Tags + pricing row ───────────────────────────
-            Row(
+            // ── Division / category badges ─────────────────────
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
               children: [
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -3369,10 +3411,10 @@ class _ProductCardState extends State<_ProductCard> {
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(division,
-                      style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w600)),
+                      style: TextStyle(
+                          color: color, fontSize: 11, fontWeight: FontWeight.w600)),
                 ),
-                if (category.isNotEmpty) ...[
-                  const SizedBox(width: 6),
+                if (category.isNotEmpty)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
@@ -3382,21 +3424,50 @@ class _ProductCardState extends State<_ProductCard> {
                     child: Text(category,
                         style: const TextStyle(color: Colors.purple, fontSize: 11)),
                   ),
-                ],
-                const Spacer(),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text('MRP: ₹$mrp',
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                    Text('PTR: ₹$ptr  |  PTS: ₹$pts',
-                        style: TextStyle(color: Colors.grey.shade500, fontSize: 11)),
-                  ],
-                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            // ── Pricing chips — reflow vertically on large font ───
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                _priceBadge('MRP', '$mrp', Colors.indigo),
+                _priceBadge('PTR', '$ptr', Colors.teal),
+                _priceBadge('PTS', '$pts', Colors.orange),
               ],
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _priceBadge(String label, String value, Color color) {
+    final display = (value.isEmpty || value == 'null') ? '—' : '₹$value';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label,
+              style: TextStyle(
+                  fontSize: 9,
+                  color: color.withOpacity(0.7),
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.5)),
+          Text(display,
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: color)),
+        ],
       ),
     );
   }
@@ -4525,18 +4596,33 @@ class AdminAllowanceScreen extends StatelessWidget {
                     backgroundColor: Color(0xFFE3F2FD),
                     child: Icon(Icons.person, color: Color(0xFF1565C0)),
                   ),
-                  title: Text(mr['name'] ?? 'Unknown',
-                      style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text('📍 ${mr['area'] ?? 'N/A'}'),
-                  trailing: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text('₹$fixed/mo',
-                          style: const TextStyle(fontWeight: FontWeight.bold,
-                              color: Color(0xFF1565C0), fontSize: 15)),
-                      const Text('fixed', style: TextStyle(fontSize: 10, color: Colors.grey)),
-                    ],
+                  title: Text(
+                      mr['name'] ?? 'Unknown',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1),
+                  subtitle: Text(
+                      '📍 ${mr['area'] ?? 'N/A'}',
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1),
+                  trailing: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 90),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text('₹$fixed/mo',
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF1565C0),
+                                  fontSize: 15)),
+                        ),
+                        const Text('fixed',
+                            style: TextStyle(fontSize: 10, color: Colors.grey)),
+                      ],
+                    ),
                   ),
                   onTap: () => _showAllowanceDialog(context, doc.id, mr, fixed),
                 ),
