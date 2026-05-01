@@ -728,7 +728,7 @@ class _StockistOrderDetailDialogState extends State<_StockistOrderDetailDialog> 
                       ),
                   ]),
                 ),
-                Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
                   Row(children: [
                     Text('Qty: ', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
                     Text('${item['quantity']}',

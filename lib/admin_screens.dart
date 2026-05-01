@@ -81,7 +81,7 @@ class _AdminMainScreenState extends State<AdminMainScreen> {
             title: const Row(children: [
               Icon(Icons.exit_to_app, color: Colors.red),
               SizedBox(width: 8),
-              Text('Exit App'),
+              Flexible(child: Text('Exit App')),
             ]),
             content: const Text('Are you sure you want to exit?'),
             actions: [
@@ -977,7 +977,7 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
         title: const Row(children: [
           Icon(Icons.location_on, color: Color(0xFF1565C0)),
           SizedBox(width: 8),
-          Text('Enter Coordinates'),
+          Flexible(child: Text('Enter Coordinates')),
         ]),
         content: SingleChildScrollView(
           child: Column(
@@ -1606,9 +1606,19 @@ class AdminMrManagementScreen extends StatelessWidget {
                                 style: TextStyle(
                                     color: isActive ? Colors.red : Colors.green)),
                           ])),
+                      PopupMenuItem(
+                          value: 'assign_stockist',
+                          child: Row(children: [
+                            const Icon(Icons.store, size: 18, color: Colors.purple),
+                            const SizedBox(width: 8),
+                            const Text('Assign Stockists'),
+                          ])),
                     ],
                     onSelected: (value) async {
-                      if (value == 'edit') {
+                      if (value == 'assign_stockist') {
+                        final assignedStockists = (mr['assignedStockists'] as List?)?.cast<String>() ?? [];
+                        _showAssignStockistDialog(context, docId, assignedStockists);
+                      } else if (value == 'edit') {
                         Navigator.push(context,
                             MaterialPageRoute(
                               builder: (_) => EditMrScreen(mrId: docId, mrData: mr),
@@ -1683,6 +1693,69 @@ class AdminMrManagementScreen extends StatelessWidget {
             },
           );
         },
+      ),
+    );
+  }
+
+  void _showAssignStockistDialog(BuildContext context, String mrId, List<dynamic> currentStockists) async {
+    final stockistsSnap = await _db.collection('users')
+        .where('role', isEqualTo: 'stockist')
+        .where('isActive', isEqualTo: true)
+        .get();
+
+    List<String> selectedIds = List<String>.from(currentStockists);
+
+    if (!context.mounted) return;
+    showDialog(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: const Text('Assign Stockists to MR'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: stockistsSnap.docs.isEmpty
+                ? const Text('No stockists found.')
+                : ListView(
+              shrinkWrap: true,
+              children: stockistsSnap.docs.map((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+                final isSelected = selectedIds.contains(doc.id);
+                return CheckboxListTile(
+                  value: isSelected,
+                  title: Text(data['name'] ?? ''),
+                  subtitle: Text(data['city'] ?? ''),
+                  onChanged: (val) => setD(() {
+                    if (val == true) {
+                      selectedIds.add(doc.id);
+                    } else {
+                      selectedIds.remove(doc.id);
+                    }
+                  }),
+                );
+              }).toList(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                await _db.collection('users').doc(mrId)
+                    .update({'assignedStockists': selectedIds});
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text('Stockists assigned successfully!'),
+                    backgroundColor: Colors.green,
+                  ));
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1988,18 +2061,10 @@ class AdminMrDetailScreen extends StatelessWidget {
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Assigned Stockists',
-                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                          TextButton.icon(
-                            onPressed: () => _showAssignStockistDialog(
-                                context, mrId, assignedStockists),
-                            icon: const Icon(Icons.edit, size: 16),
-                            label: const Text('Assign'),
-                          ),
-                        ],
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 8.0),
+                        child: Text('Assigned Stockists',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                       ),
                       if (assignedStockists.isEmpty)
                         Container(
@@ -2122,10 +2187,11 @@ class AdminMrDetailScreen extends StatelessWidget {
                                 const SizedBox(height: 4),
                                 // Deal value + tier badge
                                 Row(children: [
-                                  Text('Deal: ₹$orderVal',
+                                  Flexible(child: Text('Deal: ₹$orderVal',
                                       style: TextStyle(
                                           color: Colors.grey.shade600,
-                                          fontSize: 11)),
+                                          fontSize: 11),
+                                      overflow: TextOverflow.ellipsis)),
                                   const SizedBox(width: 8),
                                   if (tier != 'Normal')
                                     Container(
@@ -2148,7 +2214,7 @@ class AdminMrDetailScreen extends StatelessWidget {
                         ),
 
                         // Bonus
-                        Column(crossAxisAlignment: CrossAxisAlignment.end,
+                        Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
                               Text('+₹$amount',
                                   style: TextStyle(
@@ -2168,69 +2234,6 @@ class AdminMrDetailScreen extends StatelessWidget {
             ]),
           );
         },
-      ),
-    );
-  }
-
-  void _showAssignStockistDialog(BuildContext context, String mrId, List<dynamic> currentStockists) async {
-    final stockistsSnap = await _db.collection('users')
-        .where('role', isEqualTo: 'stockist')
-        .where('isActive', isEqualTo: true)
-        .get();
-
-    List<String> selectedIds = List<String>.from(currentStockists);
-
-    if (!context.mounted) return;
-    showDialog(
-      context: context,
-      builder: (_) => StatefulBuilder(
-        builder: (ctx, setD) => AlertDialog(
-          title: const Text('Assign Stockists to MR'),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: stockistsSnap.docs.isEmpty
-                ? const Text('No stockists found.')
-                : ListView(
-              shrinkWrap: true,
-              children: stockistsSnap.docs.map((doc) {
-                final data = doc.data() as Map<String, dynamic>;
-                final isSelected = selectedIds.contains(doc.id);
-                return CheckboxListTile(
-                  value: isSelected,
-                  title: Text(data['name'] ?? ''),
-                  subtitle: Text(data['city'] ?? ''),
-                  onChanged: (val) => setD(() {
-                    if (val == true) {
-                      selectedIds.add(doc.id);
-                    } else {
-                      selectedIds.remove(doc.id);
-                    }
-                  }),
-                );
-              }).toList(),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                await _db.collection('users').doc(mrId)
-                    .update({'assignedStockists': selectedIds});
-                if (ctx.mounted) Navigator.pop(ctx);
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                    content: Text('Stockists assigned successfully!'),
-                    backgroundColor: Colors.green,
-                  ));
-                }
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -2820,11 +2823,11 @@ class _AdminOrderDetailDialog extends StatelessWidget {
                     Text(item['productName'] ?? '',
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                     if ((item['mrp'] ?? '').toString().isNotEmpty)
-                      Text('MRP: ₹${item['mrp']}  PTR: ₹${item['ptr']}  PTS: ₹${item['pts']}',
+                      Text('MRP: ₹${item['mrp']}  PTR: ₹${item['ptr']}  PTS: ₹${item['pts']}', overflow: TextOverflow.ellipsis, maxLines: 1,
                           style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
                   ]),
                 ),
-                Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
                   Row(children: [
                     Text('Qty: ', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
                     Text('${item['quantity']}',
@@ -3027,11 +3030,12 @@ class _AdminMrReportsScreenState extends State<AdminMrReportsScreen> {
                                   style: const TextStyle(fontWeight: FontWeight.bold),
                                 ),
                                 subtitle: Column(
+                                  mainAxisSize: MainAxisSize.min,
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text('Date: ${data['date'] ?? 'N/A'}'),
+                                    Text('Date: ${data['date'] ?? 'N/A'}', overflow: TextOverflow.ellipsis, maxLines: 1),
                                     Text('Doctors visited: ${doctorsVisited.length}',
-                                        style: const TextStyle(fontSize: 12)),
+                                        style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis, maxLines: 1),
                                   ],
                                 ),
                                 children: [
@@ -6496,4 +6500,4 @@ class _AdminConversionScreenState extends State<AdminConversionScreen>
       ),
     );
   }
-}
+}

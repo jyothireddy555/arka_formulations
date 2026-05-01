@@ -116,7 +116,7 @@ class _MrMainScreenState extends State<MrMainScreen> {
             title: const Row(children: [
               Icon(Icons.exit_to_app, color: Colors.red),
               SizedBox(width: 8),
-              Text('Exit App'),
+              Flexible(child: Text('Exit App')),
             ]),
             content: const Text('Are you sure you want to exit?'),
             actions: [
@@ -1051,7 +1051,7 @@ class _MrDoctorCardState extends State<_MrDoctorCard> {
           context: context,
           builder: (_) => AlertDialog(
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: const Row(children: [Icon(Icons.check_circle, color: Colors.green), SizedBox(width: 8), Text('Check-In Successful')]),
+            title: const Row(children: [Icon(Icons.check_circle, color: Colors.green), SizedBox(width: 8), Flexible(child: Text('Check-In Successful'))]),
             content: Text('Checked in with ${widget.data['name']}.\n${distance.toInt()} m away.'),
             actions: [
               TextButton(
@@ -1083,7 +1083,7 @@ class _MrDoctorCardState extends State<_MrDoctorCard> {
         title: const Row(children: [
           Icon(Icons.gps_off, color: Colors.red, size: 28),
           SizedBox(width: 8),
-          Text('Fake Location Detected'),
+          Flexible(child: Text('Fake Location Detected')),
         ]),
         content: const Column(
           mainAxisSize: MainAxisSize.min,
@@ -1224,7 +1224,7 @@ class _MrDoctorCardState extends State<_MrDoctorCard> {
           title: const Row(children: [
             Icon(Icons.send, color: Colors.blue),
             SizedBox(width: 8),
-            Text('Request Sent'),
+            Flexible(child: Text('Request Sent')),
           ]),
           content: const Text(
             'Your GPS override request has been sent to admin. You will receive a notification once approved.\n\nYou can place orders directly from the notification.',
@@ -2014,113 +2014,14 @@ class _MrProductsScreenState extends State<MrProductsScreen> {
   String _filterDivision = 'All';
   String _searchQuery    = '';
   final List<String> _divisions = ['All', 'Osteon', 'Ceflon', 'Generic'];
-  List<Map<String, dynamic>> _stockists = [];
-  String? _selectedStockistUid;
-  String? _selectedStockistName;
-  Map<String, int> _stockistStockData = {};
-  bool _loadingStockists = true;
-  bool _loadingStock = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _loadStockists();
-  }
 
- Future<void> _loadStockists() async {
-    try {
-      final uid = auth.currentUser!.uid;
-
-      final mrDoc = await db.collection('users').doc(uid).get();
-      final assignedIds = (mrDoc.data()?['assignedStockists'] as List?)
-          ?.cast<String>() ??
-          [];
-
-      if (assignedIds.isEmpty) {
-        if (mounted) setState(() => _loadingStockists = false);
-        return;
-      }
-
-      final snap = await db
-          .collection('users')
-          .where(FieldPath.documentId, whereIn: assignedIds)
-          .where('isActive', isEqualTo: true)
-          .get();
-
-      if (mounted) {
-        setState(() {
-          _stockists = snap.docs.map((d) {
-            final data = d.data() as Map<String, dynamic>;
-            return {
-              'id': d.id,
-              'uid': d.id,
-              'name': data['name'] ?? 'Unknown',
-              'city': data['city'] ?? '',
-            };
-          }).toList();
-          _loadingStockists = false;
-
-          // Auto-select if only one stockist
-          if (_stockists.length == 1) {
-            _selectedStockistUid = _stockists[0]['uid'] as String;
-            _selectedStockistName = _stockists[0]['name'] as String;
-          }
-        });
-
-        // Auto-load stock for the single stockist
-        if (_stockists.length == 1) {
-          _loadStockistStock(_stockists[0]['uid'] as String);
-        }
-      }
-    } catch (e) {
-      if (mounted) setState(() => _loadingStockists = false);
-    }
-  }
-
-  Future<void> _loadStockistStock(String uid) async {
-    setState(() => _loadingStock = true);
-    try {
-      final doc = await db.collection('stockist_stock').doc(uid).get();
-      if (mounted) {
-        setState(() {
-          _stockistStockData = doc.exists
-              ? (doc.data() as Map<String, dynamic>).map((k, v) => MapEntry(k, (v as num?)?.toInt() ?? 0))
-              : {};
-          _loadingStock = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) setState(() => _loadingStock = false);
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Products & Stock')),
+      appBar: AppBar(title: const Text('Products')),
       body: Column(children: [
-        if (_loadingStockists)
-          const LinearProgressIndicator()
-        else
-          Container(
-            margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.blue.shade200)),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                isExpanded: true,
-                hint: const Text('Select Stockist to view stock'),
-                value: _selectedStockistUid,
-                items: _stockists.map((s) => DropdownMenuItem<String>(value: s['uid'] as String, child: Text(s['name'] as String))).toList(),
-                onChanged: (val) {
-                  if (val == null) return;
-                  final s = _stockists.firstWhere((x) => x['uid'] == val);
-                  setState(() { _selectedStockistUid = val; _selectedStockistName = s['name'] as String; });
-                  _loadStockistStock(val);
-                },
-              ),
-            ),
-          ),
         Padding(
           padding: const EdgeInsets.all(12),
           child: TextField(
@@ -2182,7 +2083,6 @@ class _MrProductsScreenState extends State<MrProductsScreen> {
                 return (_searchQuery.isEmpty || name.contains(_searchQuery)) && (_filterDivision == 'All' || division == _filterDivision);
               }).toList();
               if (products.isEmpty) return Center(child: Text('No products match your filter.', style: TextStyle(color: Colors.grey.shade500)));
-              if (_loadingStock) return const Center(child: CircularProgressIndicator());
               return ListView.builder(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 itemCount: products.length,
@@ -2488,7 +2388,7 @@ Future<void> _loadStockists() async {
       barrierDismissible: false,
       builder: (_) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(children: [Icon(Icons.block, color: Colors.red, size: 28), SizedBox(width: 8), Text('Order Not Allowed')]),
+        title: const Row(children: [Icon(Icons.block, color: Colors.red, size: 28), SizedBox(width: 8), Flexible(child: Text('Order Not Allowed'))]),
         content: const Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('You can only place orders after:', style: TextStyle(fontWeight: FontWeight.bold)),
           SizedBox(height: 12),
@@ -3106,7 +3006,7 @@ Future<void> _loadStockists() async {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                      Text('Order Value: ₹${orderValue.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                      Flexible(child: Text('Order Value: ₹${orderValue.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis)),
                       if (tier != 'Normal')
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -3233,12 +3133,12 @@ class MrOrdersScreen extends StatelessWidget {
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 child: ListTile(
                   leading: CircleAvatar(backgroundColor: color.withOpacity(0.15), child: Icon(Icons.receipt_long, color: color)),
-                  title: Text('Order for ${data['doctorName'] ?? 'Unknown Doctor'}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('$items item(s) • ${data['date'] ?? ''}'),
-                    if (stockistName.isNotEmpty) Text('Stockist: $stockistName', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
-                    if (tier != 'Normal') Text('Tier: $tier • Commission: +₹${data['commission'] ?? 0}', style: TextStyle(color: Colors.purple.shade700, fontSize: 12)),
-                    if (status == 'rejected') Text('⚠ Rejected by stockist', style: TextStyle(color: Colors.red.shade700, fontSize: 12)),
+                  title: Text('Order for ${data['doctorName'] ?? 'Unknown Doctor'}', style: const TextStyle(fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis, maxLines: 1),
+                  subtitle: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('$items item(s) • ${data['date'] ?? ''}', overflow: TextOverflow.ellipsis, maxLines: 1),
+                    if (stockistName.isNotEmpty) Text('Stockist: $stockistName', style: TextStyle(color: Colors.grey.shade600, fontSize: 12), overflow: TextOverflow.ellipsis, maxLines: 1),
+                    if (tier != 'Normal') Text('Tier: $tier • Commission: +₹${data['commission'] ?? 0}', style: TextStyle(color: Colors.purple.shade700, fontSize: 12), overflow: TextOverflow.ellipsis, maxLines: 1),
+                    if (status == 'rejected') Text('⚠ Rejected by stockist', style: TextStyle(color: Colors.red.shade700, fontSize: 12), overflow: TextOverflow.ellipsis, maxLines: 1),
                   ]),
                   isThreeLine: true,
                   trailing: Container(
@@ -3337,11 +3237,11 @@ class MrOrderDetailScreen extends StatelessWidget {
                       Text(item['productName'] ?? '',
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                       if ((item['mrp'] ?? '').toString().isNotEmpty)
-                        Text('MRP: ₹${item['mrp']}  PTR: ₹${item['ptr']}  PTS: ₹${item['pts']}',
+                        Text('MRP: ₹${item['mrp']}  PTR: ₹${item['ptr']}  PTS: ₹${item['pts']}', overflow: TextOverflow.ellipsis, maxLines: 1,
                             style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
                     ]),
                   ),
-                  Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                  Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
                     Row(children: [
                       Text('Qty: ', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
                       Text('${item['quantity']}',
@@ -3980,7 +3880,7 @@ class MrAllowanceScreen extends StatelessWidget {
                                   ),
                               ]),
                             ])),
-                            Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                            Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
                               Text('+₹$amount', style: TextStyle(color: tColor, fontWeight: FontWeight.bold, fontSize: 18)),
                               Text('bonus', style: TextStyle(color: Colors.grey.shade500, fontSize: 11)),
                             ]),
