@@ -8,7 +8,7 @@
 
 
     <application
-        android:label="arka_formulations"
+        android:label="Arkphora"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
 

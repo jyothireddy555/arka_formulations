@@ -17,6 +17,7 @@ class StockistMainScreen extends StatefulWidget {
 
 class _StockistMainScreenState extends State<StockistMainScreen> {
   int _currentIndex = 0;
+  final List<int> _tabHistory = [];
 
   final List<Widget> _screens = [
     const StockistDashboardScreen(),
@@ -40,7 +41,12 @@ class _StockistMainScreenState extends State<StockistMainScreen> {
   void _onNotificationTab() {
     final idx = NotificationService.tabIndexNotifier.value;
     if (idx != null && mounted) {
-      setState(() => _currentIndex = idx);
+      setState(() {
+        if (idx != _currentIndex) {
+          _tabHistory.add(_currentIndex);
+          _currentIndex = idx;
+        }
+      });
       NotificationService.tabIndexNotifier.value = null;
     }
   }
@@ -51,17 +57,32 @@ class _StockistMainScreenState extends State<StockistMainScreen> {
       canPop: false,
       onPopInvoked: (didPop) async {
         if (didPop) return;
-        if (_currentIndex != 0) {
-          setState(() => _currentIndex = 0);
+        // If a sub-screen is on top, pop it instead of changing tabs.
+        final navigator = Navigator.of(context);
+        if (navigator.canPop()) {
+          navigator.pop();
+          return;
+        }
+        if (_tabHistory.isNotEmpty) {
+          setState(() => _currentIndex = _tabHistory.removeLast());
         } else {
           SystemNavigator.pop();
         }
       },
       child: Scaffold(
-        body: _screens[_currentIndex],
+        body: IndexedStack(
+          index: _currentIndex,
+          children: _screens,
+        ),
         bottomNavigationBar: BottomNavigationBar(
           currentIndex: _currentIndex,
-          onTap: (i) => setState(() => _currentIndex = i),
+          onTap: (i) {
+            if (i == _currentIndex) return;
+            setState(() {
+              _tabHistory.add(_currentIndex);
+              _currentIndex = i;
+            });
+          },
           type: BottomNavigationBarType.fixed,
           selectedItemColor: const Color(0xFF1565C0),
           unselectedItemColor: Colors.grey,
@@ -525,7 +546,12 @@ class _StockistOrderTab extends StatelessWidget {
                   child: Icon(Icons.receipt_long, color: color),
                 ),
                 title: Text(
-                  'Order for ${data['doctorName'] ?? 'Unknown Doctor'}',
+                  // Show pharmacy name (or clinic) instead of doctor name
+                  (data['doctorPharmacy'] ?? '').toString().isNotEmpty
+                      ? data['doctorPharmacy']
+                      : (data['doctorHospital'] ?? '').toString().isNotEmpty
+                          ? data['doctorHospital']
+                          : 'Order',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                   overflow: TextOverflow.ellipsis,
                   maxLines: 1,
@@ -534,6 +560,13 @@ class _StockistOrderTab extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if ((data['doctorArea'] ?? '').toString().isNotEmpty)
+                      Text(
+                        '📍 ${data['doctorArea']}',
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                        style: const TextStyle(fontSize: 12),
+                      ),
                     Text(
                       'MR: ${data['mrName'] ?? 'N/A'}',
                       overflow: TextOverflow.ellipsis,
@@ -680,8 +713,22 @@ class _StockistOrderDetailDialogState extends State<_StockistOrderDetailDialog> 
           Text(status.toUpperCase(),
               style: TextStyle(color: color, fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 4),
-          Text('Doctor: ${widget.data['doctorName'] ?? 'N/A'}',
-              style: const TextStyle(fontWeight: FontWeight.w600)),
+          // Pharmacy / clinic name (no doctor name shown)
+          if ((widget.data['doctorPharmacy'] ?? '').toString().isNotEmpty)
+            Text(
+              '💊 ${widget.data['doctorPharmacy']}',
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+              textAlign: TextAlign.center,
+            ),
+          if ((widget.data['doctorHospital'] ?? '').toString().isNotEmpty)
+            Text('🏥 ${widget.data['doctorHospital']}',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+          if ((widget.data['doctorArea'] ?? '').toString().isNotEmpty)
+            Text('📍 Area: ${widget.data['doctorArea']}',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+          if ((widget.data['doctorAddress'] ?? '').toString().isNotEmpty)
+            Text('🏠 ${widget.data['doctorAddress']}',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
           Text('MR: ${widget.data['mrName'] ?? 'N/A'}',
               style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
           Text('Date: ${widget.data['date'] ?? 'N/A'}',

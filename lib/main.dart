@@ -28,7 +28,7 @@ class ArkaApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       navigatorKey: navigatorKey, // required for notifications navigation
-      title: 'Arka Formulations',
+      title: 'Arkphora',
       debugShowCheckedModeBanner: false,
 
       theme: ThemeData(

@@ -20,13 +20,8 @@ class _CheckInSession {
   static DateTime? checkInTime;
 
   static bool isValid() {
-    if (doctorId == null || checkInTime == null) return false;
-    final minutes = DateTime.now().difference(checkInTime!).inMinutes;
-    if (minutes > 10) {
-      clear();
-      return false;
-    }
-    return true;
+    // Session stays active until explicitly cleared via checkOut()
+    return doctorId != null && checkInTime != null;
   }
 
   static void set(String id, String name) {
@@ -104,6 +99,12 @@ class _MrMainScreenState extends State<MrMainScreen> {
       canPop: false,
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
+        // If a sub-screen is on top, pop it instead of changing tabs.
+        final navigator = Navigator.of(context);
+        if (navigator.canPop()) {
+          navigator.pop();
+          return;
+        }
         // Go back through tab history before showing exit dialog
         if (_tabHistory.isNotEmpty) {
           setState(() => _currentIndex = _tabHistory.removeLast());
@@ -132,7 +133,10 @@ class _MrMainScreenState extends State<MrMainScreen> {
           SystemNavigator.pop();        }
       },
       child: Scaffold(
-        body: _screens[_currentIndex],
+        body: IndexedStack(
+          index: _currentIndex,
+          children: _screens,
+        ),
         bottomNavigationBar: BottomNavigationBar(
           currentIndex: _currentIndex,
           onTap: (index) {
@@ -178,6 +182,7 @@ class _MrDashboardScreenState extends State<MrDashboardScreen> {
   int    _absentDays    = 0;
   int    _leaveDays     = 0;
   double _totalCommission = 0;
+  List<String> _todayAreas = [];
 
   @override
   void initState() {
@@ -204,6 +209,20 @@ class _MrDashboardScreenState extends State<MrDashboardScreen> {
           .where('date',  isEqualTo: today)
           .get();
       if (mounted) setState(() => _todayVisits = visits.docs.length.toString());
+
+      // ── Pull today's areas from the admin-assigned tour plan ──
+      final _now = DateTime.now();
+      final monthKey = '${_now.year}-${_now.month.toString().padLeft(2, '0')}';
+      final planDocId = '${uid}_$monthKey';
+      final planDoc = await db.collection('tour_plans').doc(planDocId).get();
+      final planData = planDoc.data() as Map<String, dynamic>?;
+      final dayEntry = (planData?['days'] as Map?)?[today];
+      final rawNames = (dayEntry as Map?)?['areaNames'];
+      final List<String> tourAreas = rawNames is List
+          ? List<String>.from(rawNames.whereType<String>().map((s) => s.trim()).where((s) => s.isNotEmpty))
+          : [];
+      tourAreas.sort();
+      if (mounted) setState(() => _todayAreas = tourAreas);
 
       final orders = await db
           .collection('orders')
@@ -372,6 +391,55 @@ class _MrDashboardScreenState extends State<MrDashboardScreen> {
                   _reportSubmitted ? Colors.green : Colors.orange),
             ]),
             const SizedBox(height: 12),
+
+            // ── Today's Areas to Cover ──────────────────────────────
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.teal.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.teal.shade200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    Icon(Icons.map_outlined, color: Colors.teal.shade700, size: 18),
+                    const SizedBox(width: 6),
+                    Text("Today's Areas to Cover",
+                        style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                            color: Colors.teal.shade800)),
+                  ]),
+                  const SizedBox(height: 8),
+                  _todayAreas.isEmpty
+                      ? Text('No areas recorded yet for today',
+                          style: TextStyle(
+                              fontSize: 12, color: Colors.teal.shade400,
+                              fontStyle: FontStyle.italic))
+                      : Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: _todayAreas.map((area) => Chip(
+                            label: Text(area,
+                                style: const TextStyle(
+                                    fontSize: 11, fontWeight: FontWeight.w600)),
+                            backgroundColor: Colors.teal.shade100,
+                            side: BorderSide(color: Colors.teal.shade300),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            materialTapTargetSize:
+                                MaterialTapTargetSize.shrinkWrap,
+                          )).toList(),
+                        ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // ── Total Incentives ────────────────────────────────────
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -435,6 +503,10 @@ class _MrDashboardScreenState extends State<MrDashboardScreen> {
                     _quickAction(context, 'Conversions History', Icons.history_edu, Colors.indigo, () {
                       Navigator.push(context,
                           MaterialPageRoute(builder: (_) => const MrConversionHistoryScreen()));
+                    }),
+                    _quickAction(context, 'RCPA', Icons.analytics_outlined, Colors.deepOrange, () {
+                      Navigator.push(context,
+                          MaterialPageRoute(builder: (_) => const MrRcpaScreen()));
                     }),
                   ],
                 );
@@ -573,6 +645,7 @@ class _MrAddDoctorScreenState extends State<MrAddDoctorScreen> {
   final _nameController = TextEditingController();
   final _specializationController = TextEditingController();
   final _hospitalController = TextEditingController();
+  final _pharmacyController = TextEditingController();
   final _areaController = TextEditingController();
   final _addressController = TextEditingController();
   final _contactController    = TextEditingController();
@@ -654,6 +727,7 @@ class _MrAddDoctorScreenState extends State<MrAddDoctorScreen> {
         'name': name,
         'specialization': _selectedSpecialization,
         'hospital': hospital,
+        'pharmacy': _pharmacyController.text.trim(),
         'area': area,
         'address': _addressController.text.trim(),
         'contact':    _contactController.text.trim(),
@@ -686,6 +760,7 @@ class _MrAddDoctorScreenState extends State<MrAddDoctorScreen> {
     _nameController.dispose();
     _specializationController.dispose();
     _hospitalController.dispose();
+    _pharmacyController.dispose();
     _areaController.dispose();
     _addressController.dispose();
     _contactController.dispose();
@@ -715,6 +790,9 @@ class _MrAddDoctorScreenState extends State<MrAddDoctorScreen> {
           const SizedBox(height: 14),
           _label('Hospital / Clinic Name'),
           TextField(controller: _hospitalController, decoration: const InputDecoration(hintText: 'e.g. City Hospital', prefixIcon: Icon(Icons.local_hospital_outlined))),
+          const SizedBox(height: 14),
+          _label('Pharmacy Name (Optional)'),
+          TextField(controller: _pharmacyController, decoration: const InputDecoration(hintText: 'e.g. Apollo Pharmacy', prefixIcon: Icon(Icons.local_pharmacy_outlined))),
           const SizedBox(height: 14),
           _label('Area'),
           TextField(controller: _areaController, decoration: const InputDecoration(hintText: 'e.g. Nellore North', prefixIcon: Icon(Icons.map_outlined))),
@@ -1028,12 +1106,7 @@ class _MrDoctorCardState extends State<_MrDoctorCard> {
         }
       }
       
-      if (latestCheckIn != null && DateTime.now().difference(latestCheckIn).inMinutes < 10) {
-        final waitTime = 10 - DateTime.now().difference(latestCheckIn).inMinutes;
-        _showMsg('Please wait $waitTime more minute(s) before checking into another doctor.', Colors.red);
-        if (mounted) setState(() => _checking = false);
-        return;
-      }
+      // ── No more inter-doctor cooldown; MR can check in again after checking out ──
       _activeCheckInDoctorId = widget.docId;
       _activeCheckInDoctorName = widget.data['name'];
       _activeCheckInTime = DateTime.now();
@@ -1073,6 +1146,15 @@ class _MrDoctorCardState extends State<_MrDoctorCard> {
     }
   }
 
+  // ── Check-out: clears session so MR can check in with next doctor ──────────
+  void _checkOut() {
+    final name = _CheckInSession.doctorName ?? 'doctor';
+    _CheckInSession.clear();
+    if (mounted) {
+      _showMsg('✅ Checked out from $name. You can now check in with another doctor.', Colors.green);
+      setState(() {});
+    }
+  }
 
   void _showMockLocationWarning() {
     if (!mounted) return;
@@ -1306,21 +1388,29 @@ class _MrDoctorCardState extends State<_MrDoctorCard> {
                               ? 'Check out from ${_CheckInSession.doctorName ?? 'current doctor'} first'
                               : '',
                           child: ElevatedButton(
-                            onPressed: anotherIsCheckedIn ? null : _checkIn,
+                            onPressed: anotherIsCheckedIn
+                                ? null
+                                : isMyCheckIn
+                                    ? _checkOut
+                                    : _checkIn,
                             style: ElevatedButton.styleFrom(
                               minimumSize: const Size(72, 32),
                               padding: const EdgeInsets.symmetric(horizontal: 10),
                               backgroundColor: isMyCheckIn
-                                  ? Colors.green
+                                  ? Colors.red.shade600
                                   : anotherIsCheckedIn
                                       ? Colors.grey.shade300
                                       : null,
-                              foregroundColor: anotherIsCheckedIn
-                                  ? Colors.grey.shade500
-                                  : null,
+                              foregroundColor: isMyCheckIn
+                                  ? Colors.white
+                                  : anotherIsCheckedIn
+                                      ? Colors.grey.shade500
+                                      : null,
                             ),
                             child: Text(
-                              isMyCheckIn ? 'Checked ✓' : 'Check In',
+                              isMyCheckIn
+                                  ? 'Check Out'
+                                  : 'Check In',
                               style: const TextStyle(fontSize: 11),
                             ),
                           ),
@@ -1328,55 +1418,78 @@ class _MrDoctorCardState extends State<_MrDoctorCard> {
                       },
                     ),
               const SizedBox(height: 4),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SizedBox(
-                    width: 52,
-                    height: 28,
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => MrEditDoctorScreen(
-                            docId: widget.docId,
-                            existingData: widget.data,
+              SizedBox(
+                width: 36,
+                height: 28,
+                child: PopupMenuButton<String>(
+                  tooltip: 'More options',
+                  padding: EdgeInsets.zero,
+                  icon: const Icon(Icons.more_vert, size: 20, color: Color(0xFF1565C0)),
+                  onSelected: (value) {
+                    switch (value) {
+                      case 'phone_order':
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => MrPlaceOrderScreen(
+                              preselectedDoctorId: widget.docId,
+                              preselectedDoctorName: widget.data['name'] ?? '',
+                              isPhoneOrder: true,
+                            ),
                           ),
-                        ),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        padding: EdgeInsets.zero,
-                        side: const BorderSide(color: Color(0xFF1565C0)),
-                        foregroundColor: const Color(0xFF1565C0),
-                      ),
-                      child:
-                      const Text('Edit', style: TextStyle(fontSize: 10)),
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  SizedBox(
-                    width: 52,
-                    height: 28,
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => DoctorOrderSummaryScreen(
-                            doctorId:   widget.docId,
-                            doctorName: widget.data['name'] ?? 'Doctor',
+                        );
+                        break;
+                      case 'edit':
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => MrEditDoctorScreen(
+                              docId: widget.docId,
+                              existingData: widget.data,
+                            ),
                           ),
-                        ),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        padding: EdgeInsets.zero,
-                        side: BorderSide(color: Colors.green.shade600),
-                        foregroundColor: Colors.green.shade700,
-                      ),
-                      child: const Text('Orders',
-                          style: TextStyle(fontSize: 10)),
+                        );
+                        break;
+                      case 'orders':
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => DoctorOrderSummaryScreen(
+                              doctorId: widget.docId,
+                              doctorName: widget.data['name'] ?? 'Doctor',
+                            ),
+                          ),
+                        );
+                        break;
+                    }
+                  },
+                  itemBuilder: (_) => [
+                    PopupMenuItem<String>(
+                      value: 'phone_order',
+                      child: Row(children: [
+                        Icon(Icons.phone_in_talk, size: 18, color: Colors.deepPurple.shade400),
+                        const SizedBox(width: 10),
+                        const Text('POB'),
+                      ]),
                     ),
-                  ),
-                ],
+                    const PopupMenuItem<String>(
+                      value: 'edit',
+                      child: Row(children: [
+                        Icon(Icons.edit, size: 18, color: Color(0xFF1565C0)),
+                        SizedBox(width: 10),
+                        Text('Edit'),
+                      ]),
+                    ),
+                    PopupMenuItem<String>(
+                      value: 'orders',
+                      child: Row(children: [
+                        Icon(Icons.receipt_long, size: 18, color: Colors.green.shade700),
+                        const SizedBox(width: 10),
+                        const Text('Orders'),
+                      ]),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -1673,6 +1786,7 @@ class MrEditDoctorScreen extends StatefulWidget {
 class _MrEditDoctorScreenState extends State<MrEditDoctorScreen> {
   late final TextEditingController _nameController;
   late final TextEditingController _hospitalController;
+  late final TextEditingController _pharmacyController;
   late final TextEditingController _areaController;
   late final TextEditingController _addressController;
   late final TextEditingController _contactController;
@@ -1697,6 +1811,7 @@ class _MrEditDoctorScreenState extends State<MrEditDoctorScreen> {
     final d = widget.existingData;
     _nameController       = TextEditingController(text: d['name']       ?? '');
     _hospitalController   = TextEditingController(text: d['hospital']   ?? '');
+    _pharmacyController   = TextEditingController(text: d['pharmacy']   ?? '');
     _areaController       = TextEditingController(text: d['area']       ?? '');
     _addressController    = TextEditingController(text: d['address']    ?? '');
     _contactController    = TextEditingController(text: d['contact']    ?? '');
@@ -1712,6 +1827,7 @@ class _MrEditDoctorScreenState extends State<MrEditDoctorScreen> {
   void dispose() {
     _nameController.dispose();
     _hospitalController.dispose();
+    _pharmacyController.dispose();
     _areaController.dispose();
     _addressController.dispose();
     _contactController.dispose();
@@ -1751,6 +1867,7 @@ class _MrEditDoctorScreenState extends State<MrEditDoctorScreen> {
         'name':           name,
         'specialization': _selectedSpecialization,
         'hospital':       hospital,
+        'pharmacy':       _pharmacyController.text.trim(),
         'area':           area,
         'address':        _addressController.text.trim(),
         'contact':        _contactController.text.trim(),
@@ -1810,6 +1927,16 @@ class _MrEditDoctorScreenState extends State<MrEditDoctorScreen> {
             decoration: const InputDecoration(
               hintText: 'e.g. City Hospital',
               prefixIcon: Icon(Icons.local_hospital_outlined),
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          _label('Pharmacy Name (Optional)'),
+          TextField(
+            controller: _pharmacyController,
+            decoration: const InputDecoration(
+              hintText: 'e.g. Apollo Pharmacy',
+              prefixIcon: Icon(Icons.local_pharmacy_outlined),
             ),
           ),
           const SizedBox(height: 14),
@@ -2015,7 +2142,120 @@ class _MrProductsScreenState extends State<MrProductsScreen> {
   String _searchQuery    = '';
   final List<String> _divisions = ['All', 'Osteon', 'Ceflon', 'Generic'];
 
-
+  void _showVisualAidFullScreen(
+      BuildContext context, List<String> urls, String productName) {
+    final pageCtrl = PageController();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => StatefulBuilder(
+          builder: (ctx, setInnerState) {
+            int currentPage = 0;
+            return StatefulBuilder(
+              builder: (ctx2, setPage) {
+                return Scaffold(
+                  backgroundColor: Colors.black,
+                  appBar: AppBar(
+                    backgroundColor: Colors.black,
+                    foregroundColor: Colors.white,
+                    title: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(productName,
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16)),
+                        Text('${currentPage + 1} / ${urls.length}',
+                            style: const TextStyle(
+                                color: Colors.white54, fontSize: 12)),
+                      ],
+                    ),
+                    actions: [
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white),
+                        onPressed: () => Navigator.pop(ctx2),
+                      )
+                    ],
+                  ),
+                  body: Column(
+                    children: [
+                      Expanded(
+                        child: PageView.builder(
+                          controller: pageCtrl,
+                          itemCount: urls.length,
+                          onPageChanged: (i) => setPage(() => currentPage = i),
+                          itemBuilder: (_, i) => InteractiveViewer(
+                            panEnabled: true,
+                            scaleEnabled: true,
+                            minScale: 0.8,
+                            maxScale: 4.0,
+                            child: Center(
+                              child: Image.network(
+                                urls[i],
+                                fit: BoxFit.contain,
+                                loadingBuilder: (_, child, progress) {
+                                  if (progress == null) return child;
+                                  return Center(
+                                    child: CircularProgressIndicator(
+                                      value: progress.expectedTotalBytes != null
+                                          ? progress.cumulativeBytesLoaded /
+                                              progress.expectedTotalBytes!
+                                          : null,
+                                      color: Colors.white,
+                                    ),
+                                  );
+                                },
+                                errorBuilder: (_, __, ___) => Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: const [
+                                    Icon(Icons.broken_image,
+                                        color: Colors.white54, size: 64),
+                                    SizedBox(height: 16),
+                                    Text('Image could not be loaded',
+                                        style:
+                                            TextStyle(color: Colors.white54)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      // Dot indicators
+                      if (urls.length > 1)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: List.generate(urls.length, (i) {
+                              final active = i == currentPage;
+                              return AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                margin:
+                                    const EdgeInsets.symmetric(horizontal: 4),
+                                width: active ? 20 : 8,
+                                height: 8,
+                                decoration: BoxDecoration(
+                                  color: active
+                                      ? Colors.white
+                                      : Colors.white38,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                              );
+                            }),
+                          ),
+                        ),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2095,115 +2335,151 @@ class _MrProductsScreenState extends State<MrProductsScreen> {
                     case 'Ceflon': color = Colors.teal; break;
                     default:       color = Colors.green;
                   }
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                    elevation: 1.5,
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // ── Name + division chip ────────────────────────
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                width: 40, height: 40,
-                                decoration: BoxDecoration(
-                                  color: color.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(8),
+                  // Resolve list of visual aid URLs (support old single + new array)
+                  List<String> visualAidUrls = [];
+                  final rawUrls = data['visualAidUrls'];
+                  if (rawUrls is List) {
+                    visualAidUrls = List<String>.from(
+                        rawUrls.whereType<String>().where((u) => u.isNotEmpty));
+                  } else {
+                    final single = (data['visualAidUrl'] ?? '').toString();
+                    if (single.isNotEmpty) visualAidUrls = [single];
+                  }
+                  final hasVisualAid = visualAidUrls.isNotEmpty;
+                  return GestureDetector(
+                    onTap: hasVisualAid
+                        ? () => _showVisualAidFullScreen(
+                            context, visualAidUrls, data['name'] ?? 'Product')
+                        : null,
+                    child: Card(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      elevation: 1.5,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // ── Name + division chip ──────────────────────
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  width: 40, height: 40,
+                                  decoration: BoxDecoration(
+                                    color: color.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Icon(Icons.medication, color: color, size: 22),
                                 ),
-                                child: Icon(Icons.medication, color: color, size: 22),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      data['name'] ?? 'Unknown',
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 14),
-                                    ),
-                                    Row(children: [
-                                      if ((data['code'] ?? '').toString().isNotEmpty)
-                                        Text('${data['code']}',
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        data['name'] ?? 'Unknown',
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 14),
+                                      ),
+                                      Row(children: [
+                                        if ((data['code'] ?? '').toString().isNotEmpty)
+                                          Text('${data['code']}',
+                                              style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: Colors.grey.shade600)),
+                                        if ((data['code'] ?? '').toString().isNotEmpty &&
+                                            (data['category'] ?? '').toString().isNotEmpty)
+                                          Text(' • ', style: TextStyle(color: Colors.grey.shade400)),
+                                        Text(data['category'] ?? '',
                                             style: TextStyle(
                                                 fontSize: 11,
                                                 color: Colors.grey.shade600)),
-                                      if ((data['code'] ?? '').toString().isNotEmpty &&
-                                          (data['category'] ?? '').toString().isNotEmpty)
-                                        Text(' • ', style: TextStyle(color: Colors.grey.shade400)),
-                                      Text(data['category'] ?? '',
-                                          style: TextStyle(
-                                              fontSize: 11,
-                                              color: Colors.grey.shade600)),
-                                    ]),
+                                      ]),
+                                    ],
+                                  ),
+                                ),
+                                // Division badge
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: color.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                        color: color.withOpacity(0.3)),
+                                  ),
+                                  child: Text(division,
+                                      style: TextStyle(
+                                          fontSize: 10,
+                                          color: color,
+                                          fontWeight: FontWeight.w600)),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            // ── Pricing row ───────────────────────────────
+                            Row(
+                              children: [
+                                _priceChip('MRP', data['mrp']),
+                                const SizedBox(width: 8),
+                                _priceChip('PTR', data['ptr']),
+                                const SizedBox(width: 8),
+                                _priceChip('PTS', data['pts']),
+                                if ((data['packSize'] ?? '').toString().isNotEmpty) ...[
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 5),
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey.shade100,
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text('Pack',
+                                              style: TextStyle(
+                                                  fontSize: 9,
+                                                  color: Colors.grey.shade500)),
+                                          Text(
+                                            data['packSize'].toString(),
+                                            style: const TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w600),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                            // ── Visual Aid hint ───────────────────────────
+                            if (hasVisualAid)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.collections_outlined,
+                                        size: 14,
+                                        color: Colors.blue.shade600),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      '${visualAidUrls.length} visual aid image${visualAidUrls.length > 1 ? "s" : ""} — tap to view',
+                                      style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.blue.shade600),
+                                    ),
                                   ],
                                 ),
                               ),
-                              // Division badge
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 3),
-                                decoration: BoxDecoration(
-                                  color: color.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                      color: color.withOpacity(0.3)),
-                                ),
-                                child: Text(division,
-                                    style: TextStyle(
-                                        fontSize: 10,
-                                        color: color,
-                                        fontWeight: FontWeight.w600)),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          // ── Pricing row ─────────────────────────────────
-                          Row(
-                            children: [
-                              _priceChip('MRP', data['mrp']),
-                              const SizedBox(width: 8),
-                              _priceChip('PTR', data['ptr']),
-                              const SizedBox(width: 8),
-                              _priceChip('PTS', data['pts']),
-                              if ((data['packSize'] ?? '').toString().isNotEmpty) ...[
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 8, vertical: 5),
-                                    decoration: BoxDecoration(
-                                      color: Colors.grey.shade100,
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text('Pack',
-                                            style: TextStyle(
-                                                fontSize: 9,
-                                                color: Colors.grey.shade500)),
-                                        Text(
-                                          data['packSize'].toString(),
-                                          style: const TextStyle(
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w600),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   );
@@ -2249,7 +2525,13 @@ class _MrProductsScreenState extends State<MrProductsScreen> {
 class MrPlaceOrderScreen extends StatefulWidget {
   final String? preselectedDoctorId;
   final String? preselectedDoctorName;
-  const MrPlaceOrderScreen({super.key, this.preselectedDoctorId, this.preselectedDoctorName});
+  final bool isPhoneOrder;
+  const MrPlaceOrderScreen({
+    super.key,
+    this.preselectedDoctorId,
+    this.preselectedDoctorName,
+    this.isPhoneOrder = false,
+  });
 
   @override
   State<MrPlaceOrderScreen> createState() => _MrPlaceOrderScreenState();
@@ -2275,12 +2557,15 @@ class _MrPlaceOrderScreenState extends State<MrPlaceOrderScreen> {
   @override
   void initState() {
     super.initState();
-    final hasValidCheckIn = _validateCheckInSession();
-    if (!hasValidCheckIn && widget.preselectedDoctorId == null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _showOrderBlockedDialog());
+    if (!widget.isPhoneOrder) {
+      final hasValidCheckIn = _validateCheckInSession();
+      if (!hasValidCheckIn && widget.preselectedDoctorId == null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _showOrderBlockedDialog());
+      }
     }
-    // If doctor was preselected (from Place Order button after check-in)
-// OR if there's an active check-in session, lock to that doctor
+    // If doctor was preselected (from Place Order button after check-in,
+    // or from Phone Order menu) lock to that doctor. Otherwise, fall back
+    // to the active check-in session.
     if (widget.preselectedDoctorId != null) {
       _selectedDoctorId = widget.preselectedDoctorId;
       _selectedDoctorName = widget.preselectedDoctorName;
@@ -2456,14 +2741,16 @@ Future<void> _loadStockists() async {
     final uid = auth.currentUser!.uid;
     final today = _dateKey(DateTime.now());
 
-    final visitCheck = await db.collection('visits').where('mrId', isEqualTo: uid).where('doctorId', isEqualTo: _selectedDoctorId).where('date', isEqualTo: today).get();
-    if (visitCheck.docs.isEmpty) {
-      setState(() => _submitting = false);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('❌ You must check in with this doctor today before placing an order!'),
-        backgroundColor: Colors.red, duration: Duration(seconds: 4),
-      ));
-      return;
+    if (!widget.isPhoneOrder) {
+      final visitCheck = await db.collection('visits').where('mrId', isEqualTo: uid).where('doctorId', isEqualTo: _selectedDoctorId).where('date', isEqualTo: today).get();
+      if (visitCheck.docs.isEmpty) {
+        setState(() => _submitting = false);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('❌ You must check in with this doctor today before placing an order!'),
+          backgroundColor: Colors.red, duration: Duration(seconds: 4),
+        ));
+        return;
+      }
     }
 
     final orderItems = _quantities.entries.where((e) => e.value > 0).map((e) => {
@@ -2541,12 +2828,25 @@ Future<void> _loadStockists() async {
       final stockistData = _stockists.firstWhere((s) => s['id'] == _selectedStockistId, orElse: () => <String, dynamic>{});
       final stockistUid = stockistData['uid'] as String? ?? '';
 
+      // Snapshot the doctor's current clinic + pharmacy so the order
+      // detail can show them even if the doctor record changes later.
+      final doctorSnap = await db.collection('doctors').doc(_selectedDoctorId).get();
+      final doctorData = doctorSnap.data() ?? {};
+      final doctorHospital = (doctorData['hospital'] ?? '').toString();
+      final doctorPharmacy = (doctorData['pharmacy'] ?? '').toString();
+      final doctorArea     = (doctorData['area']     ?? '').toString();
+      final doctorAddress  = (doctorData['address']  ?? '').toString();
+
       // Save order with earnedCommission so the order card shows the correct value
       final orderRef = await db.collection('orders').add({
         'mrId': uid,
         'mrName': mrName,
         'doctorId': _selectedDoctorId,
         'doctorName': _selectedDoctorName,
+        'doctorHospital': doctorHospital,
+        'doctorPharmacy': doctorPharmacy,
+        'doctorArea':     doctorArea,
+        'doctorAddress':  doctorAddress,
         'stockistId': _selectedStockistId,
         'stockistName': _selectedStockistName,
         'stockistUid': stockistUid,
@@ -2557,6 +2857,7 @@ Future<void> _loadStockists() async {
         'orderValue': double.parse(orderValue.toStringAsFixed(2)),
         'tier': earnedTier,
         'commission': earnedCommission,   // ← uses earnedCommission, no collision
+        'orderType': widget.isPhoneOrder ? 'phone' : 'checkin',
         'createdAt': FieldValue.serverTimestamp(),
       });
 
@@ -2617,16 +2918,22 @@ Future<void> _loadStockists() async {
         });
       }
 
-      _activeCheckInDoctorId = null;
-      _activeCheckInDoctorName = null;
-      _activeCheckInTime = null;
-      _CheckInSession.clear();
+      // Phone orders don't consume the active check-in session, since they
+      // were placed without one in the first place.
+      if (!widget.isPhoneOrder) {
+        _activeCheckInDoctorId = null;
+        _activeCheckInDoctorName = null;
+        _activeCheckInTime = null;
+        _CheckInSession.clear();
+      }
 
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Order sent to stockist for approval! ✓'),
-          backgroundColor: Colors.green, duration: Duration(seconds: 3),
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(widget.isPhoneOrder
+              ? 'Phone order sent to stockist for approval! ✓'
+              : 'Order sent to stockist for approval! ✓'),
+          backgroundColor: Colors.green, duration: const Duration(seconds: 3),
         ));
       }
     } catch (e) {
@@ -2645,7 +2952,7 @@ Future<void> _loadStockists() async {
     const tierCommissionsPreview = {'Core': 500, 'Super Core': 1000, 'Premium': 1500};
     final previewCommission = tierCommissionsPreview[tier] ?? 0;
 
-    if (widget.preselectedDoctorId == null && _selectedDoctorId == null && !_validateCheckInSession()) {
+    if (!widget.isPhoneOrder && widget.preselectedDoctorId == null && _selectedDoctorId == null && !_validateCheckInSession()) {
       return Scaffold(
         appBar: AppBar(title: const Text('Place New Order')),
         body: Center(
@@ -2669,7 +2976,7 @@ Future<void> _loadStockists() async {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Place New Order'),
+        title: Text(widget.isPhoneOrder ? 'Phone Order Booking' : 'Place New Order'),
         actions: [
           if (_selectedDoctorName != null)
             Padding(
@@ -2683,6 +2990,27 @@ Future<void> _loadStockists() async {
       ),
       body: Column(
         children: [
+          if (widget.isPhoneOrder)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.deepPurple.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.deepPurple.shade200),
+              ),
+              child: Row(children: [
+                Icon(Icons.phone_in_talk, color: Colors.deepPurple.shade400, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Phone Order Booking — placed without check-in. Admin will see this as a phone order.',
+                    style: TextStyle(fontSize: 12, color: Colors.deepPurple.shade700),
+                  ),
+                ),
+              ]),
+            ),
           Container(
             margin: const EdgeInsets.all(12),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -2913,7 +3241,7 @@ Future<void> _loadStockists() async {
                                       borderRadius: BorderRadius.circular(6),
                                       border: Border.all(color: Colors.green.shade200),
                                     ),
-                                    child: Text('FREE', style: TextStyle(fontSize: 9, color: Colors.green.shade700, fontWeight: FontWeight.bold)),
+                                    child: Text('OFFER', style: TextStyle(fontSize: 9, color: Colors.green.shade700, fontWeight: FontWeight.bold)),
                                   ),
                                   const SizedBox(width: 4),
                                   InkWell(
@@ -2928,12 +3256,12 @@ Future<void> _loadStockists() async {
                                       final res = await showDialog<int>(
                                         context: context,
                                         builder: (_) => AlertDialog(
-                                          title: const Text('Offer / Free Qty'),
+                                          title: const Text('Offer / Offer Qty'),
                                           content: TextField(
                                             controller: ctrl,
                                             keyboardType: TextInputType.number,
                                             autofocus: true,
-                                            decoration: const InputDecoration(hintText: 'e.g. 2', suffixText: 'free units'),
+                                            decoration: const InputDecoration(hintText: 'e.g. 2', suffixText: 'Offer units'),
                                           ),
                                           actions: [
                                             TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
@@ -3211,6 +3539,10 @@ class MrOrderDetailScreen extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           _detail('Doctor', data['doctorName'] ?? 'N/A'),
+          if ((data['doctorHospital'] ?? '').toString().isNotEmpty)
+            _detail('Clinic', data['doctorHospital']),
+          if ((data['doctorPharmacy'] ?? '').toString().isNotEmpty)
+            _detail('Pharmacy', data['doctorPharmacy']),
           if (data['stockistName'] != null) _detail('Stockist', data['stockistName']),
           _detail('Date', data['date'] ?? 'N/A'),
           if (data['orderValue'] != null) _detail('Order Value', '₹${data['orderValue']}'),
@@ -3798,6 +4130,55 @@ class MrAllowanceScreen extends StatelessWidget {
                       Text('₹${fixedAllowance.toStringAsFixed(0)}', style: const TextStyle(color: Colors.white, fontSize: 34, fontWeight: FontWeight.bold)),
                       const Text('per month', style: TextStyle(color: Colors.white70, fontSize: 12)),
                       const Divider(color: Colors.white30, height: 28),
+                      // Today's areas to cover
+                      FutureBuilder<DocumentSnapshot>(
+                        future: () {
+                          final now = DateTime.now();
+                          final monthKey = '${now.year}-${now.month.toString().padLeft(2, '0')}';
+                          final planDocId = '${uid}_$monthKey';
+                          return db.collection('tour_plans').doc(planDocId).get();
+                        }(),
+                        builder: (context, planSnap) {
+                          final todayKey = '${DateTime.now().year}-'
+                              '${DateTime.now().month.toString().padLeft(2, '0')}-'
+                              '${DateTime.now().day.toString().padLeft(2, '0')}';
+                          final plan = (planSnap.data?.data() as Map<String, dynamic>?) ?? {};
+                          final days = (plan['days'] as Map?)?.cast<String, dynamic>() ?? {};
+                          final dayData = (days[todayKey] as Map?)?.cast<String, dynamic>();
+                          final areaNames = (dayData?['areaNames'] as List?)?.cast<String>() ?? [];
+                          return Column(children: [
+                            Row(children: [
+                              const Icon(Icons.map_outlined, color: Colors.white70, size: 14),
+                              const SizedBox(width: 6),
+                              const Text("Today's Areas to Cover",
+                                  style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600)),
+                            ]),
+                            const SizedBox(height: 8),
+                            areaNames.isEmpty
+                                ? const Text('No areas planned for today',
+                                    style: TextStyle(color: Colors.white54, fontSize: 12, fontStyle: FontStyle.italic))
+                                : Wrap(
+                                    spacing: 6,
+                                    runSpacing: 6,
+                                    alignment: WrapAlignment.center,
+                                    children: areaNames.map((name) => Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withOpacity(0.18),
+                                        borderRadius: BorderRadius.circular(20),
+                                        border: Border.all(color: Colors.white30),
+                                      ),
+                                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                                        const Icon(Icons.location_on, color: Colors.white70, size: 12),
+                                        const SizedBox(width: 4),
+                                        Text(name, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500)),
+                                      ]),
+                                    )).toList(),
+                                  ),
+                            const Divider(color: Colors.white30, height: 24),
+                          ]);
+                        },
+                      ),
                       Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
                         _summaryPill('Total Incentive', '₹${totalCommission.toStringAsFixed(0)}', Colors.white),
                         _summaryPill('Records', '${docs.length}', Colors.white),
@@ -4391,7 +4772,7 @@ class MrProfileScreen extends StatelessWidget {
               ),
               const SizedBox(height: 20),
               _infoTile(Icons.phone, 'Phone', mr['phone'] ?? 'Not set'),
-              _infoTile(Icons.location_on, 'Area', mr['area'] ?? 'Not set'),
+              _infoTile(Icons.location_on, 'HQ', mr['area'] ?? 'Not set'),
               _infoTile(Icons.category, 'Division', mr['division'] ?? 'Not set'),
               _infoTile(Icons.payments, 'Fixed Allowance', '₹${(mr['fixedAllowance'] as num?)?.toInt() ?? 0} / month'),
               const SizedBox(height: 8),
@@ -4400,6 +4781,9 @@ class MrProfileScreen extends StatelessWidget {
               }),
               _menuCard(context, Icons.calendar_today, 'Attendance', Colors.blue, () {
                 Navigator.push(context, MaterialPageRoute(builder: (_) => const MrAttendanceScreen()));
+              }),
+              _menuCard(context, Icons.event_note, 'My Tour Plan', Colors.teal, () {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const MrTourPlanScreen()));
               }),
               _menuCard(context, Icons.event_busy, 'Leave History', Colors.orange, () {
                 Navigator.push(context, MaterialPageRoute(builder: (_) => const MrLeaveHistoryScreen()));
@@ -5421,6 +5805,677 @@ class MrConversionHistoryScreen extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MR RCPA SCREEN
+// Retail Chemist Prescription Audit — MR records doctor-wise product movement,
+// competitor brands, and avg order qty for admin review.
+// ─────────────────────────────────────────────────────────────────────────────
+class MrRcpaScreen extends StatefulWidget {
+  const MrRcpaScreen({super.key});
+  @override
+  State<MrRcpaScreen> createState() => _MrRcpaScreenState();
+}
+
+class _MrRcpaScreenState extends State<MrRcpaScreen> {
+  // ── Doctor selection ──
+  String? _selectedDoctorId;
+  String? _selectedDoctorName;
+  String? _selectedDoctorSpec;
+  String? _selectedDoctorHospital;   // clinic/hospital name from doctor profile
+  String? _selectedDoctorPharmacy;   // pharmacy name from doctor profile
+  List<QueryDocumentSnapshot> _doctors = [];
+  bool _loadingDoctors = true;
+  String _doctorSearch = '';
+
+  // ── Products & avg qty ──
+  List<QueryDocumentSnapshot> _products = [];
+  bool _loadingProducts = true;
+  // productId → avg qty text controller
+  final Map<String, TextEditingController> _qtyControllers = {};
+  // productId → whether this product is selected for RCPA
+  final Map<String, bool> _selected = {};
+  String _productSearch = '';
+
+  // ── Other notes ──
+  final _otherMedsCtrl         = TextEditingController();
+  final _competitorBrandsCtrl  = TextEditingController();
+
+  bool _submitting = false;
+  String _errorMsg = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDoctors();
+    _loadProducts();
+  }
+
+  Future<void> _loadDoctors() async {
+    try {
+      // Load ALL doctors (not filtered by MR) so MR can pick any
+      final snap = await db.collection('doctors').get();
+      final sorted = snap.docs.toList()
+        ..sort((a, b) {
+          final aName = ((a.data() as Map<String, dynamic>)['name'] ?? '').toString();
+          final bName = ((b.data() as Map<String, dynamic>)['name'] ?? '').toString();
+          return aName.compareTo(bName);
+        });
+      if (mounted) setState(() { _doctors = sorted; _loadingDoctors = false; });
+    } catch (e) {
+      if (mounted) setState(() => _loadingDoctors = false);
+    }
+  }
+
+  Future<void> _loadProducts() async {
+    try {
+      final snap = await db.collection('products').orderBy('name').get();
+      for (final d in snap.docs) {
+        _qtyControllers[d.id] = TextEditingController();
+        _selected[d.id] = false;
+      }
+      if (mounted) setState(() { _products = snap.docs; _loadingProducts = false; });
+    } catch (e) {
+      if (mounted) setState(() => _loadingProducts = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _otherMedsCtrl.dispose();
+    _competitorBrandsCtrl.dispose();
+    for (final c in _qtyControllers.values) c.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_selectedDoctorId == null) {
+      setState(() => _errorMsg = 'Please select a doctor.');
+      return;
+    }
+    final selectedProducts = _products.where((d) => _selected[d.id] == true).toList();
+    if (selectedProducts.isEmpty) {
+      setState(() => _errorMsg = 'Select at least one product.');
+      return;
+    }
+    setState(() { _submitting = true; _errorMsg = ''; });
+    try {
+      final uid  = auth.currentUser!.uid;
+      final today = '${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2,'0')}-${DateTime.now().day.toString().padLeft(2,'0')}';
+
+      // Fetch MR name
+      final mrDoc = await db.collection('users').doc(uid).get();
+      final mrName = (mrDoc.data() as Map<String, dynamic>?)?['name'] ?? '';
+
+      final productEntries = selectedProducts.map((d) {
+        final data = d.data() as Map<String, dynamic>;
+        return {
+          'productId':   d.id,
+          'productName': data['name'] ?? '',
+          'division':    data['division'] ?? '',
+          'avgQty':      int.tryParse(_qtyControllers[d.id]?.text.trim() ?? '') ?? 0,
+        };
+      }).toList();
+
+      await db.collection('rcpa').add({
+        'mrId':               uid,
+        'mrName':             mrName,
+        'doctorId':           _selectedDoctorId,
+        'doctorName':         _selectedDoctorName,
+        'doctorSpecialization': _selectedDoctorSpec ?? '',
+        'doctorHospital':     _selectedDoctorHospital ?? '',
+        'doctorPharmacy':     _selectedDoctorPharmacy ?? '',
+        'products':           productEntries,
+        'otherMedicinesNote': _otherMedsCtrl.text.trim(),
+        'competitorBrands':   _competitorBrandsCtrl.text.trim(),
+        'date':               today,
+        'createdAt':          FieldValue.serverTimestamp(),
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('✅ RCPA submitted successfully!'),
+          backgroundColor: Colors.green,
+        ));
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      setState(() { _submitting = false; _errorMsg = 'Error: $e'; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('RCPA Entry'),
+        backgroundColor: Colors.blue,
+        foregroundColor: Colors.white,
+      ),
+      body: _loadingDoctors || _loadingProducts
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // ── Doctor search + list (hidden once selected) ───────────
+                  _sectionHeader('1. Select Doctor', Icons.person_pin, Colors.blue),
+                  const SizedBox(height: 8),
+                  // Show the selected chip OR the search+list
+                  if (_selectedDoctorId != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Chip(
+                        avatar: const Icon(Icons.check_circle, color: Colors.blue, size: 18),
+                        label: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('Dr. $_selectedDoctorName',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            if ((_selectedDoctorSpec ?? '').isNotEmpty || (_selectedDoctorHospital ?? '').isNotEmpty)
+                              Text('${_selectedDoctorSpec ?? ''} • ${_selectedDoctorHospital ?? ''}',
+                                  style: const TextStyle(fontSize: 11)),
+                          ],
+                        ),
+                        backgroundColor: Colors.blue.withOpacity(0.08),
+                        deleteIcon: const Icon(Icons.close, size: 16),
+                        onDeleted: () => setState(() {
+                          _selectedDoctorId = _selectedDoctorName =
+                              _selectedDoctorSpec = _selectedDoctorHospital =
+                              _selectedDoctorPharmacy = null;
+                        }),
+                      ),
+                    )
+                  else ...[
+                    TextField(
+                      decoration: InputDecoration(
+                        hintText: 'Search doctor...',
+                        prefixIcon: const Icon(Icons.search),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                      onChanged: (v) => setState(() => _doctorSearch = v.toLowerCase()),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      constraints: const BoxConstraints(maxHeight: 220),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.shade300),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Builder(builder: (_) {
+                        final filtered = _doctors.where((d) {
+                          final data = d.data() as Map<String, dynamic>;
+                          return _doctorSearch.isEmpty ||
+                              (data['name'] ?? '').toString().toLowerCase().contains(_doctorSearch);
+                        }).toList();
+                        if (filtered.isEmpty) return const Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Text('No doctors found.', style: TextStyle(color: Colors.grey)),
+                        );
+                        return ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: filtered.length,
+                          itemBuilder: (_, i) {
+                            final data = filtered[i].data() as Map<String, dynamic>;
+                            return ListTile(
+                              dense: true,
+                              leading: CircleAvatar(
+                                radius: 18,
+                                backgroundColor: Colors.blue.withOpacity(0.15),
+                                child: Text(
+                                  (data['name'] ?? '?').toString().substring(0, 1).toUpperCase(),
+                                  style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                              title: Text(data['name'] ?? '',
+                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                              subtitle: Text(
+                                '${data['specialization'] ?? ''} • ${data['hospital'] ?? ''}',
+                                style: const TextStyle(fontSize: 11)),
+                              onTap: () => setState(() {
+                                _selectedDoctorId       = filtered[i].id;
+                                _selectedDoctorName     = data['name'];
+                                _selectedDoctorSpec     = data['specialization'];
+                                _selectedDoctorHospital = data['hospital'];
+                                _selectedDoctorPharmacy = data['pharmacy'];
+                                _doctorSearch = '';
+                              }),
+                            );
+                          },
+                        );
+                      }),
+                    ),
+                  ],
+                  const SizedBox(height: 20),
+
+                  // ── Product selection ─────────────────────────────────
+                  _sectionHeader('2. Products & Avg Order Qty', Icons.medication_outlined, Colors.blue),
+                  const SizedBox(height: 4),
+                  Text('Select products and enter average order quantity per visit.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                  const SizedBox(height: 8),
+                  TextField(
+                    decoration: InputDecoration(
+                      hintText: 'Search products...',
+                      prefixIcon: const Icon(Icons.search),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                    onChanged: (v) => setState(() => _productSearch = v.toLowerCase()),
+                  ),
+                  const SizedBox(height: 8),
+                  // Fixed-height scrollable box — products don't expand the page
+                  SizedBox(
+                    height: 320,
+                    child: Builder(builder: (_) {
+                      final filtered = _products.where((d) {
+                        final data = d.data() as Map<String, dynamic>;
+                        return _productSearch.isEmpty ||
+                            (data['name'] ?? '').toString().toLowerCase().contains(_productSearch);
+                      }).toList();
+                      if (filtered.isEmpty) return const Center(
+                        child: Text('No products found.', style: TextStyle(color: Colors.grey)));
+                      return ListView.builder(
+                        itemCount: filtered.length,
+                        itemBuilder: (_, idx) {
+                          final data      = filtered[idx].data() as Map<String, dynamic>;
+                          final id        = filtered[idx].id;
+                          final isChecked = _selected[id] ?? false;
+                          final division  = data['division'] ?? '';
+                          Color divColor  = division == 'Osteon'
+                              ? Colors.blue
+                              : division == 'Ceflon'
+                                  ? Colors.teal
+                                  : Colors.green;
+                          return Card(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              child: Row(
+                                children: [
+                                  Checkbox(
+                                    value: isChecked,
+                                    activeColor: Colors.blue,
+                                    onChanged: (v) => setState(() => _selected[id] = v ?? false),
+                                  ),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(data['name'] ?? '',
+                                            style: const TextStyle(
+                                                fontWeight: FontWeight.w600, fontSize: 13)),
+                                        Row(children: [
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 6, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: divColor.withOpacity(0.1),
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: Text(division,
+                                                style: TextStyle(
+                                                    fontSize: 10,
+                                                    color: divColor,
+                                                    fontWeight: FontWeight.bold)),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Text(data['category'] ?? '',
+                                              style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: Colors.grey.shade600)),
+                                        ]),
+                                      ],
+                                    ),
+                                  ),
+                                  AnimatedOpacity(
+                                    opacity: isChecked ? 1.0 : 0.3,
+                                    duration: const Duration(milliseconds: 200),
+                                    child: SizedBox(
+                                      width: 64,
+                                      child: TextField(
+                                        controller: _qtyControllers[id],
+                                        enabled: isChecked,
+                                        keyboardType: TextInputType.number,
+                                        textAlign: TextAlign.center,
+                                        decoration: InputDecoration(
+                                          hintText: 'Qty',
+                                          isDense: true,
+                                          contentPadding:
+                                              const EdgeInsets.symmetric(
+                                                  horizontal: 8, vertical: 8),
+                                          border: OutlineInputBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(8)),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      );
+                    }),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // ── Other Medicines ────────────────────────────────────
+                  _sectionHeader('4. Other Medicines', Icons.notes, Colors.purple),
+                  const SizedBox(height: 4),
+                  Text('List other medicines prescribed at this clinic (non-Arka products).',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                  const SizedBox(height: 8),
+                  _textField('Other medicines, generic names, etc.', _otherMedsCtrl,
+                      Icons.medical_services_outlined, maxLines: 3),
+                  const SizedBox(height: 20),
+
+                  // ── Competitor Brands ──────────────────────────────────
+                  _sectionHeader('5. Competitor Brands', Icons.storefront_outlined, Colors.red),
+                  const SizedBox(height: 4),
+                  Text('Note competitor brand names being used at this clinic.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                  const SizedBox(height: 8),
+                  _textField('Competitor brand names, company names, etc.', _competitorBrandsCtrl,
+                      Icons.business_outlined, maxLines: 3),
+                  const SizedBox(height: 24),
+
+                  // ── Error ──────────────────────────────────────────────
+                  if (_errorMsg.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.red.shade200),
+                      ),
+                      child: Text(_errorMsg, style: const TextStyle(color: Colors.red, fontSize: 13)),
+                    ),
+
+                  // ── Submit ─────────────────────────────────────────────
+                  SizedBox(
+                    width: double.infinity,
+                    child: _submitting
+                        ? const Center(child: CircularProgressIndicator())
+                        : ElevatedButton.icon(
+                            onPressed: _submit,
+                            icon: const Icon(Icons.send),
+                            label: const Text('Submit RCPA',
+                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                          ),
+                  ),
+                  const SizedBox(height: 30),
+                ],
+              ),
+            ),
+    );
+  }
+
+  Widget _sectionHeader(String title, IconData icon, Color color) {
+    return Row(children: [
+      Icon(icon, color: color, size: 20),
+      const SizedBox(width: 8),
+      Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: color)),
+    ]);
+  }
+
+  Widget _textField(String hint, TextEditingController ctrl, IconData icon, {int maxLines = 1}) {
+    return TextField(
+      controller: ctrl,
+      maxLines: maxLines,
+      decoration: InputDecoration(
+        hintText: hint,
+        prefixIcon: Icon(icon),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MR TOUR PLAN — read-only monthly calendar view
+// ─────────────────────────────────────────────────────────────────────────────
+class MrTourPlanScreen extends StatefulWidget {
+  const MrTourPlanScreen({super.key});
+
+  @override
+  State<MrTourPlanScreen> createState() => _MrTourPlanScreenState();
+}
+
+class _MrTourPlanScreenState extends State<MrTourPlanScreen> {
+  int _year = DateTime.now().year;
+  int _month = DateTime.now().month;
+  static const _months = ['Jan','Feb','Mar','Apr','May','Jun',
+    'Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  String _pad(int n) => n.toString().padLeft(2, '0');
+  String get _monthKey => '$_year-${_pad(_month)}';
+  String get _planDocId => '${auth.currentUser?.uid ?? ''}_$_monthKey';
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('My Tour Plan')),
+      body: Column(children: [
+        // Month switcher
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+          child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            IconButton(
+              onPressed: () => setState(() {
+                if (_month == 1) { _month = 12; _year--; } else { _month--; }
+              }),
+              icon: const Icon(Icons.chevron_left),
+            ),
+            Text('${_months[_month - 1]} $_year',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            IconButton(
+              onPressed: () => setState(() {
+                if (_month == 12) { _month = 1; _year++; } else { _month++; }
+              }),
+              icon: const Icon(Icons.chevron_right),
+            ),
+          ]),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(children: [
+            _legendDot(Colors.green, 'Planned'),
+            const SizedBox(width: 14),
+            _legendDot(Colors.grey.shade300, 'No plan'),
+            const Spacer(),
+            const Text('Tap a day to view areas',
+                style: TextStyle(fontSize: 11, color: Colors.grey)),
+          ]),
+        ),
+        const SizedBox(height: 8),
+        Expanded(
+          child: StreamBuilder<DocumentSnapshot>(
+            stream: db.collection('tour_plans').doc(_planDocId).snapshots(),
+            builder: (context, snap) {
+              final plan = (snap.data?.data() as Map<String, dynamic>?) ?? {};
+              final days = (plan['days'] as Map?)?.cast<String, dynamic>() ?? {};
+              return SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  _calendarGrid(days),
+                  const SizedBox(height: 16),
+                  if (days.isEmpty)
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 30),
+                        child: Column(children: [
+                          Icon(Icons.event_busy, size: 56, color: Colors.grey.shade300),
+                          const SizedBox(height: 8),
+                          Text('No tour plan for ${_months[_month - 1]} $_year',
+                              style: TextStyle(color: Colors.grey.shade500)),
+                        ]),
+                      ),
+                    )
+                  else ...[
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 8),
+                      child: Text('Plan Details',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                    ),
+                    ..._planList(days),
+                  ],
+                ]),
+              );
+            },
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _legendDot(Color c, String label) => Row(mainAxisSize: MainAxisSize.min, children: [
+    Container(width: 10, height: 10,
+        decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
+    const SizedBox(width: 4),
+    Text(label, style: const TextStyle(fontSize: 11)),
+  ]);
+
+  Widget _calendarGrid(Map<String, dynamic> days) {
+    final daysInMonth = DateUtils.getDaysInMonth(_year, _month);
+    final firstWeekday = DateTime(_year, _month, 1).weekday;
+    final mondayOffset = firstWeekday - 1;
+    final cells = <Widget>[];
+    const headers = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    for (final h in headers) {
+      cells.add(Center(
+        child: Text(h, style: const TextStyle(
+            fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey)),
+      ));
+    }
+    for (var i = 0; i < mondayOffset; i++) {
+      cells.add(const SizedBox.shrink());
+    }
+    for (var d = 1; d <= daysInMonth; d++) {
+      final key = '$_year-${_pad(_month)}-${_pad(d)}';
+      final dayData = (days[key] as Map?)?.cast<String, dynamic>();
+      final hasPlan = dayData != null && (dayData['areaIds'] as List?)?.isNotEmpty == true;
+      final dt = DateTime(_year, _month, d);
+      final isSun = dt.weekday == DateTime.sunday;
+      cells.add(InkWell(
+        onTap: hasPlan ? () => _showDayDetail(key, dayData) : null,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          margin: const EdgeInsets.all(2),
+          decoration: BoxDecoration(
+            color: hasPlan ? Colors.green.shade100 : Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: hasPlan ? Colors.green.shade400 : Colors.grey.shade300,
+            ),
+          ),
+          padding: const EdgeInsets.all(4),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text('$d',
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: isSun ? Colors.red.shade300 : Colors.black87)),
+              if (hasPlan)
+                Text('${(dayData['areaIds'] as List).length} area${(dayData['areaIds'] as List).length == 1 ? '' : 's'}',
+                    style: TextStyle(fontSize: 9, color: Colors.green.shade800)),
+            ],
+          ),
+        ),
+      ));
+    }
+    return GridView.count(
+      crossAxisCount: 7,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      childAspectRatio: 0.95,
+      children: cells,
+    );
+  }
+
+  List<Widget> _planList(Map<String, dynamic> days) {
+    final keys = days.keys.toList()..sort();
+    return keys.map((k) {
+      final v = (days[k] as Map?)?.cast<String, dynamic>() ?? {};
+      final names = (v['areaNames'] as List?)?.cast<String>() ?? const [];
+      if (names.isEmpty) return const SizedBox.shrink();
+      return Card(
+        margin: const EdgeInsets.only(bottom: 8),
+        child: ListTile(
+          leading: const CircleAvatar(
+            backgroundColor: Color(0xFFE8F5E9),
+            child: Icon(Icons.event_available, color: Colors.green),
+          ),
+          title: Text(k, style: const TextStyle(fontWeight: FontWeight.bold)),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: names.map((n) => Chip(
+                label: Text(n, style: const TextStyle(fontSize: 11)),
+                visualDensity: VisualDensity.compact,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                backgroundColor: Colors.green.shade50,
+                side: BorderSide(color: Colors.green.shade200),
+              )).toList(),
+            ),
+          ),
+        ),
+      );
+    }).toList();
+  }
+
+  void _showDayDetail(String dateKey, Map<String, dynamic> dayData) {
+    final names = (dayData['areaNames'] as List?)?.cast<String>() ?? const [];
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Row(children: [
+          const Icon(Icons.event_available, color: Colors.green),
+          const SizedBox(width: 8),
+          Flexible(child: Text(dateKey)),
+        ]),
+        content: names.isEmpty
+            ? const Text('No areas planned for this day.')
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: names.map((n) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Row(children: [
+                    const Icon(Icons.location_on, size: 16, color: Color(0xFF1565C0)),
+                    const SizedBox(width: 6),
+                    Flexible(child: Text(n)),
+                  ]),
+                )).toList(),
+              ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
       ),
     );
   }

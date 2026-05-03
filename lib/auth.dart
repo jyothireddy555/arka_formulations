@@ -175,7 +175,7 @@ class _LoadingScreen extends StatelessWidget {
             ),
             const SizedBox(height: 24),
             const Text(
-              'Arka Formulations',
+              'Arkphora',
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 22,
@@ -348,7 +348,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 24),
                 const Text(
-                  'Arka Formulations',
+                  'Arkphora',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 26,

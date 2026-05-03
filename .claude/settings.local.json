@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flutter analyze *)",
+      "Bash(Get-ChildItem -Path \"d:\\\\arka_formulations\\\\lib\" -File)",
+      "Bash(Select-Object Name)",
+      "Bash(where pandoc *)",
+      "Bash(where wkhtmltopdf *)",
+      "Bash(where chrome *)",
+      "Bash(where python *)",
+      "Bash(where node *)",
+      "Bash(python -c \"import reportlab; print\\('reportlab', reportlab.Version\\)\")",
+      "Bash(python -c \"import fpdf; print\\('fpdf ok'\\)\")",
+      "Bash(python -c \"import weasyprint; print\\('weasyprint ok'\\)\")",
+      "Bash(python -c \"import markdown; print\\('markdown ok'\\)\")",
+      "Bash(python -m pip install --quiet fpdf2)",
+      "Bash(python -c \"from fpdf import FPDF; print\\('fpdf2 ready'\\)\")"
+    ]
+  }
+}

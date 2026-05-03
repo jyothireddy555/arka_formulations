@@ -9,6 +9,10 @@ import 'notification_service.dart'; // Added for notification deep-link fix
 import 'admin_mr_visit_history_screen.dart';
 import 'package:flutter/services.dart'; // ensure this is at top
 import 'package:url_launcher/url_launcher.dart';
+import 'dart:io';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 
 
 final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -34,6 +38,7 @@ class _AdminMainScreenState extends State<AdminMainScreen> {
     const AdminOrdersScreen(),
     const AdminMrManagementScreen(),
     const AdminConversionScreen(),
+    const AdminRcpaScreen(),
     const AdminProfileScreen(),
   ];
 
@@ -67,13 +72,20 @@ class _AdminMainScreenState extends State<AdminMainScreen> {
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
 
-        // Go back through tab history before showing exit dialog
+        // If a sub-screen (e.g. Leave Approvals) is on top, just pop it.
+        final navigator = Navigator.of(context);
+        if (navigator.canPop()) {
+          navigator.pop();
+          return;
+        }
+
+        // We're on the root — go back through tab history first
         if (_tabHistory.isNotEmpty) {
           setState(() => _currentIndex = _tabHistory.removeLast());
           return;
         }
 
-        // If on dashboard, show exit confirmation dialog
+        // No more history — show exit confirmation dialog
         final shouldExit = await showDialog<bool>(
           context: context,
           builder: (_) => AlertDialog(
@@ -141,7 +153,10 @@ class _AdminMainScreenState extends State<AdminMainScreen> {
           }
 
           return Scaffold(
-            body: _screens[_currentIndex],
+            body: IndexedStack(
+              index: _currentIndex,
+              children: _screens,
+            ),
             bottomNavigationBar: BottomNavigationBar(
               currentIndex: _currentIndex,
               onTap: (index) {
@@ -160,6 +175,7 @@ class _AdminMainScreenState extends State<AdminMainScreen> {
                 const BottomNavigationBarItem(icon: Icon(Icons.shopping_bag), label: 'Orders'),
                 const BottomNavigationBarItem(icon: Icon(Icons.badge), label: 'MRs'),
                 BottomNavigationBarItem(icon: _conversionIcon(), label: 'Conversions'),
+                const BottomNavigationBarItem(icon: Icon(Icons.analytics_outlined), label: 'RCPA'),
                 const BottomNavigationBarItem(icon: Icon(Icons.manage_accounts), label: 'Manage'),
               ],
             ),
@@ -255,7 +271,7 @@ class AdminDashboardScreen extends StatelessWidget {
                       style:
                       TextStyle(color: Colors.white70, fontSize: 14)),
                   SizedBox(height: 4),
-                  Text('Arka Formulations',
+                  Text('Arkphora',
                       style: TextStyle(
                           color: Colors.white,
                           fontSize: 20,
@@ -683,6 +699,20 @@ class _AdminDoctorCard extends StatelessWidget {
                             color: Colors.grey.shade500,
                             fontSize: 12),
                       ),
+                      if ((data['pharmacy'] ?? '').toString().isNotEmpty)
+                        Text(
+                          '💊 ${data['pharmacy']}',
+                          style: TextStyle(
+                              color: Colors.green.shade700,
+                              fontSize: 12),
+                        ),
+                      if ((data['area'] ?? '').toString().isNotEmpty)
+                        Text(
+                          '📍 ${data['area']}',
+                          style: TextStyle(
+                              color: Colors.blue.shade600,
+                              fontSize: 11),
+                        ),
                     ],
                   ),
                 ),
@@ -863,6 +893,7 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
   final _nameController = TextEditingController();
   final _specializationController = TextEditingController();
   final _hospitalController = TextEditingController();
+  final _pharmacyController = TextEditingController();
   final _areaController = TextEditingController();
   final _addressController = TextEditingController();
   final _contactController    = TextEditingController();
@@ -897,6 +928,7 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
       final d = widget.existingData!;
       _nameController.text = d['name'] ?? '';
       _hospitalController.text = d['hospital'] ?? '';
+      _pharmacyController.text = d['pharmacy'] ?? '';
       _areaController.text = d['area'] ?? '';
       _addressController.text = d['address'] ?? '';
       _selectedSpecialization =
@@ -1125,6 +1157,7 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
         'name': name,
         'specialization': _selectedSpecialization,
         'hospital': hospital,
+        'pharmacy': _pharmacyController.text.trim(),
         'area': area,
         'address': _addressController.text.trim(),
         'contact':    _contactController.text.trim(),
@@ -1174,6 +1207,7 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
     _nameController.dispose();
     _specializationController.dispose();
     _hospitalController.dispose();
+    _pharmacyController.dispose();
     _areaController.dispose();
     _addressController.dispose();
     _contactController.dispose();
@@ -1222,6 +1256,15 @@ class _AddDoctorScreenState extends State<AddDoctorScreen> {
               decoration: const InputDecoration(
                 hintText: 'e.g. City Hospital',
                 prefixIcon: Icon(Icons.local_hospital_outlined),
+              ),
+            ),
+            const SizedBox(height: 14),
+            _label('Pharmacy Name (Optional)'),
+            TextField(
+              controller: _pharmacyController,
+              decoration: const InputDecoration(
+                hintText: 'e.g. Apollo Pharmacy',
+                prefixIcon: Icon(Icons.local_pharmacy_outlined),
               ),
             ),
             const SizedBox(height: 14),
@@ -1613,11 +1656,33 @@ class AdminMrManagementScreen extends StatelessWidget {
                             const SizedBox(width: 8),
                             const Text('Assign Stockists'),
                           ])),
+                      PopupMenuItem(
+                          value: 'assign_hq',
+                          child: Row(children: [
+                            const Icon(Icons.location_city, size: 18, color: Colors.indigo),
+                            const SizedBox(width: 8),
+                            const Text('Assign HQ & Areas'),
+                          ])),
+                      PopupMenuItem(
+                          value: 'tour_plan',
+                          child: Row(children: [
+                            const Icon(Icons.event_note, size: 18, color: Colors.teal),
+                            const SizedBox(width: 8),
+                            const Text('Monthly Tour Plan'),
+                          ])),
                     ],
                     onSelected: (value) async {
                       if (value == 'assign_stockist') {
                         final assignedStockists = (mr['assignedStockists'] as List?)?.cast<String>() ?? [];
                         _showAssignStockistDialog(context, docId, assignedStockists);
+                      } else if (value == 'assign_hq') {
+                        Navigator.push(context, MaterialPageRoute(
+                          builder: (_) => AdminMrAssignHqAreasScreen(mrId: docId, mrData: mr),
+                        ));
+                      } else if (value == 'tour_plan') {
+                        Navigator.push(context, MaterialPageRoute(
+                          builder: (_) => AdminMrTourPlanScreen(mrId: docId, mrData: mr),
+                        ));
                       } else if (value == 'edit') {
                         Navigator.push(context,
                             MaterialPageRoute(
@@ -1774,7 +1839,8 @@ class EditMrScreen extends StatefulWidget {
 class _EditMrScreenState extends State<EditMrScreen> {
   late final TextEditingController _nameController;
   late final TextEditingController _phoneController;
-  late final TextEditingController _areaController;
+  String? _hqId;
+  Set<String> _selectedAreaIds = {};
   bool _isLoading = false;
   String _errorMessage = '';
 
@@ -1783,35 +1849,48 @@ class _EditMrScreenState extends State<EditMrScreen> {
     super.initState();
     _nameController  = TextEditingController(text: widget.mrData['name']  ?? '');
     _phoneController = TextEditingController(text: widget.mrData['phone'] ?? '');
-    _areaController  = TextEditingController(text: widget.mrData['area']  ?? '');
+    _hqId            = widget.mrData['headquartersId'] as String?;
+    _selectedAreaIds = ((widget.mrData['assignedAreaIds'] as List?)?.cast<String>() ?? const [])
+        .toSet();
   }
 
   @override
   void dispose() {
     _nameController.dispose();
     _phoneController.dispose();
-    _areaController.dispose();
     super.dispose();
   }
 
   Future<void> _saveMr() async {
     final name  = _nameController.text.trim();
     final phone = _phoneController.text.trim();
-    final area  = _areaController.text.trim();
 
-    if (name.isEmpty || phone.isEmpty || area.isEmpty) {
-      setState(() => _errorMessage = 'Please fill all fields.');
+    if (name.isEmpty || phone.isEmpty || _hqId == null || _selectedAreaIds.isEmpty) {
+      setState(() => _errorMessage =
+          'Please fill all fields and pick a HQ + at least one area.');
       return;
     }
 
     setState(() { _isLoading = true; _errorMessage = ''; });
 
     try {
+      final areaDocs = await _db
+          .collection('areas')
+          .where(FieldPath.documentId, whereIn: _selectedAreaIds.toList())
+          .get();
+      final areaNames = areaDocs.docs
+          .map((d) => (d.data())['name']?.toString() ?? '')
+          .where((s) => s.isNotEmpty)
+          .toList()
+        ..sort();
+
       await _db.collection('users').doc(widget.mrId).update({
-        'name':      name,
-        'phone':     phone,
-        'area':      area,
-        'updatedAt': FieldValue.serverTimestamp(),
+        'name':            name,
+        'phone':           phone,
+        'headquartersId':  _hqId,
+        'assignedAreaIds': _selectedAreaIds.toList(),
+        'area':            areaNames.join(', '),
+        'updatedAt':       FieldValue.serverTimestamp(),
       });
 
       if (mounted) {
@@ -1850,7 +1929,103 @@ class _EditMrScreenState extends State<EditMrScreen> {
             const SizedBox(height: 14),
             _field('Full Name', _nameController, Icons.person_outline, 'Enter MR full name'),
             _field('Phone', _phoneController, Icons.phone_outlined, 'Enter phone', type: TextInputType.phone),
-            _field('Area', _areaController, Icons.location_on_outlined, 'e.g. Nellore North'),
+            const Text('Headquarters', style: TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            StreamBuilder<QuerySnapshot>(
+              stream: _db.collection('headquarters').orderBy('name').snapshots(),
+              builder: (context, snap) {
+                if (!snap.hasData) return const LinearProgressIndicator();
+                final hqs = snap.data!.docs;
+                if (hqs.isEmpty) {
+                  return Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.orange.shade200),
+                    ),
+                    child: const Text(
+                      'No headquarters yet. Create one first from Manage → Headquarters & Areas.',
+                      style: TextStyle(color: Colors.orange),
+                    ),
+                  );
+                }
+                return DropdownButtonFormField<String>(
+                  value: hqs.any((d) => d.id == _hqId) ? _hqId : null,
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.location_city_outlined),
+                    hintText: 'Select Headquarters',
+                  ),
+                  items: hqs.map((d) {
+                    final data = d.data() as Map<String, dynamic>;
+                    return DropdownMenuItem(value: d.id, child: Text(data['name'] ?? ''));
+                  }).toList(),
+                  onChanged: (v) => setState(() {
+                    if (_hqId != v) _selectedAreaIds = {};
+                    _hqId = v;
+                  }),
+                );
+              },
+            ),
+            const SizedBox(height: 14),
+            const Text('Areas', style: TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            if (_hqId == null)
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text('Select a headquarters to choose areas.',
+                    style: TextStyle(color: Colors.grey)),
+              )
+            else
+              StreamBuilder<QuerySnapshot>(
+                stream: _db.collection('areas').where('hqId', isEqualTo: _hqId).snapshots(),
+                builder: (context, snap) {
+                  if (!snap.hasData) return const LinearProgressIndicator();
+                  final areas = (snap.data!.docs).toList()
+                    ..sort((a, b) {
+                      final an = ((a.data() as Map)['name'] ?? '').toString();
+                      final bn = ((b.data() as Map)['name'] ?? '').toString();
+                      return an.toLowerCase().compareTo(bn.toLowerCase());
+                    });
+                  if (areas.isEmpty) {
+                    return Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.orange.shade200),
+                      ),
+                      child: const Text('No areas under this HQ. Add some first.'),
+                    );
+                  }
+                  return Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: areas.map((d) {
+                      final data = d.data() as Map<String, dynamic>;
+                      final id = d.id;
+                      final selected = _selectedAreaIds.contains(id);
+                      return FilterChip(
+                        label: Text(data['name'] ?? ''),
+                        selected: selected,
+                        onSelected: (val) => setState(() {
+                          if (val) {
+                            _selectedAreaIds.add(id);
+                          } else {
+                            _selectedAreaIds.remove(id);
+                          }
+                        }),
+                        selectedColor: const Color(0xFF1565C0).withOpacity(0.15),
+                        checkmarkColor: const Color(0xFF1565C0),
+                      );
+                    }).toList(),
+                  );
+                },
+              ),
             const SizedBox(height: 20),
             if (_errorMessage.isNotEmpty)
               Container(
@@ -2347,8 +2522,9 @@ class _AddMrScreenState extends State<AddMrScreen> {
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
-  final _areaController = TextEditingController();
   final _passwordController = TextEditingController();
+  String? _hqId;
+  Set<String> _selectedAreaIds = {};
   bool _isLoading = false;
   bool _obscurePassword = true;
   String _errorMessage = '';
@@ -2357,15 +2533,16 @@ class _AddMrScreenState extends State<AddMrScreen> {
     final name = _nameController.text.trim();
     final email = _emailController.text.trim();
     final phone = _phoneController.text.trim();
-    final area = _areaController.text.trim();
     final password = _passwordController.text.trim();
 
     if (name.isEmpty ||
         email.isEmpty ||
         phone.isEmpty ||
-        area.isEmpty ||
+        _hqId == null ||
+        _selectedAreaIds.isEmpty ||
         password.isEmpty) {
-      setState(() => _errorMessage = 'Please fill in all fields.');
+      setState(() => _errorMessage =
+          'Please fill all fields and pick a HQ + at least one area.');
       return;
     }
     if (password.length < 6) {
@@ -2381,6 +2558,17 @@ class _AddMrScreenState extends State<AddMrScreen> {
 
     try {
       final currentAdmin = _auth.currentUser!;
+
+      // Resolve area names for backward-compat `area` display field.
+      final areaDocs = await _db
+          .collection('areas')
+          .where(FieldPath.documentId, whereIn: _selectedAreaIds.toList())
+          .get();
+      final areaNames = areaDocs.docs
+          .map((d) => (d.data())['name']?.toString() ?? '')
+          .where((s) => s.isNotEmpty)
+          .toList()
+        ..sort();
 
       FirebaseApp secondaryApp;
       try {
@@ -2405,7 +2593,9 @@ class _AddMrScreenState extends State<AddMrScreen> {
         'name': name,
         'email': email,
         'phone': phone,
-        'area': area,
+        'headquartersId': _hqId,
+        'assignedAreaIds': _selectedAreaIds.toList(),
+        'area': areaNames.join(', '),
         'role': 'mr',
         'isActive': true,
         'fixedAllowance': 0,
@@ -2454,7 +2644,6 @@ class _AddMrScreenState extends State<AddMrScreen> {
     _nameController.dispose();
     _emailController.dispose();
     _phoneController.dispose();
-    _areaController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
@@ -2476,8 +2665,103 @@ class _AddMrScreenState extends State<AddMrScreen> {
             _field('Phone', _phoneController, Icons.phone_outlined,
                 'Enter phone',
                 type: TextInputType.phone),
-            _field('Area', _areaController, Icons.location_on_outlined,
-                'e.g. Nellore North'),
+            const Text('Headquarters', style: TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            StreamBuilder<QuerySnapshot>(
+              stream: _db.collection('headquarters').orderBy('name').snapshots(),
+              builder: (context, snap) {
+                if (!snap.hasData) return const LinearProgressIndicator();
+                final hqs = snap.data!.docs;
+                if (hqs.isEmpty) {
+                  return Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.orange.shade200),
+                    ),
+                    child: const Text(
+                      'No headquarters yet. Create one first from Manage → Headquarters & Areas.',
+                      style: TextStyle(color: Colors.orange),
+                    ),
+                  );
+                }
+                return DropdownButtonFormField<String>(
+                  value: hqs.any((d) => d.id == _hqId) ? _hqId : null,
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.location_city_outlined),
+                    hintText: 'Select Headquarters',
+                  ),
+                  items: hqs.map((d) {
+                    final data = d.data() as Map<String, dynamic>;
+                    return DropdownMenuItem(value: d.id, child: Text(data['name'] ?? ''));
+                  }).toList(),
+                  onChanged: (v) => setState(() {
+                    if (_hqId != v) _selectedAreaIds = {};
+                    _hqId = v;
+                  }),
+                );
+              },
+            ),
+            const SizedBox(height: 14),
+            const Text('Areas', style: TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            if (_hqId == null)
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text('Select a headquarters to choose areas.',
+                    style: TextStyle(color: Colors.grey)),
+              )
+            else
+              StreamBuilder<QuerySnapshot>(
+                stream: _db.collection('areas').where('hqId', isEqualTo: _hqId).snapshots(),
+                builder: (context, snap) {
+                  if (!snap.hasData) return const LinearProgressIndicator();
+                  final areas = (snap.data!.docs).toList()
+                    ..sort((a, b) {
+                      final an = ((a.data() as Map)['name'] ?? '').toString();
+                      final bn = ((b.data() as Map)['name'] ?? '').toString();
+                      return an.toLowerCase().compareTo(bn.toLowerCase());
+                    });
+                  if (areas.isEmpty) {
+                    return Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.orange.shade200),
+                      ),
+                      child: const Text('No areas under this HQ. Add some first.'),
+                    );
+                  }
+                  return Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: areas.map((d) {
+                      final data = d.data() as Map<String, dynamic>;
+                      final id = d.id;
+                      final selected = _selectedAreaIds.contains(id);
+                      return FilterChip(
+                        label: Text(data['name'] ?? ''),
+                        selected: selected,
+                        onSelected: (val) => setState(() {
+                          if (val) {
+                            _selectedAreaIds.add(id);
+                          } else {
+                            _selectedAreaIds.remove(id);
+                          }
+                        }),
+                        selectedColor: const Color(0xFF1565C0).withOpacity(0.15),
+                        checkmarkColor: const Color(0xFF1565C0),
+                      );
+                    }).toList(),
+                  );
+                },
+              ),
             const SizedBox(height: 14),
             const Text('Password',
                 style: TextStyle(fontWeight: FontWeight.w600)),
@@ -2673,13 +2957,17 @@ class _OrderTab extends StatelessWidget {
             final status = data['status'] ?? 'pending';
             final color  = statusColor(status);
             final items  = (data['items'] as List?)?.length ?? 0;
+            final isPhoneOrder = data['orderType'] == 'phone';
             return Card(
               margin: const EdgeInsets.only(bottom: 10),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               child: ListTile(
                 leading: CircleAvatar(
-                  backgroundColor: color.withOpacity(0.15),
-                  child: Icon(Icons.receipt_long, color: color),
+                  backgroundColor: (isPhoneOrder ? Colors.deepPurple : color).withOpacity(0.15),
+                  child: Icon(
+                    isPhoneOrder ? Icons.phone_in_talk : Icons.receipt_long,
+                    color: isPhoneOrder ? Colors.deepPurple : color,
+                  ),
                 ),
                 title: Text(
                   'Order for ${data['doctorName'] ?? 'Unknown Doctor'}',
@@ -2691,6 +2979,27 @@ class _OrderTab extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (isPhoneOrder)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2, bottom: 4),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.deepPurple.shade50,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: Colors.deepPurple.shade200),
+                          ),
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            Icon(Icons.phone_in_talk, size: 11, color: Colors.deepPurple.shade400),
+                            const SizedBox(width: 3),
+                            Text('PHONE ORDER Booking',
+                                style: TextStyle(
+                                    color: Colors.deepPurple.shade700,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold)),
+                          ]),
+                        ),
+                      ),
                     Text(
                       'MR: ${data['mrName'] ?? 'N/A'}',
                       overflow: TextOverflow.ellipsis,
@@ -2773,20 +3082,50 @@ class _AdminOrderDetailDialog extends StatelessWidget {
     final status = data['status'] ?? 'pending';
     final color  = statusColor(status);
     final items  = (data['items'] as List?) ?? [];
+    final isPhoneOrder = data['orderType'] == 'phone';
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Icon(Icons.receipt_long, color: color, size: 40),
+          Icon(
+            isPhoneOrder ? Icons.phone_in_talk : Icons.receipt_long,
+            color: isPhoneOrder ? Colors.deepPurple : color,
+            size: 40,
+          ),
           const SizedBox(height: 8),
           Text(status.toUpperCase(),
               style: TextStyle(color: color, fontSize: 18,
                   fontWeight: FontWeight.bold)),
+          if (isPhoneOrder)
+            Container(
+              margin: const EdgeInsets.only(top: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: Colors.deepPurple.shade50,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.deepPurple.shade200),
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.phone_in_talk, size: 13, color: Colors.deepPurple.shade400),
+                const SizedBox(width: 4),
+                Text('Phone Order Booking',
+                    style: TextStyle(
+                        color: Colors.deepPurple.shade700,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold)),
+              ]),
+            ),
           const SizedBox(height: 4),
           Text('Doctor: ${data['doctorName'] ?? 'N/A'}',
               style: const TextStyle(fontWeight: FontWeight.w600)),
+          if ((data['doctorHospital'] ?? '').toString().isNotEmpty)
+            Text('Clinic: ${data['doctorHospital']}',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+          if ((data['doctorPharmacy'] ?? '').toString().isNotEmpty)
+            Text('Pharmacy: ${data['doctorPharmacy']}',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
           Text('MR: ${data['mrName'] ?? 'N/A'}',
               style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
           if (data['stockistName'] != null && data['stockistName'].toString().isNotEmpty)
@@ -3523,6 +3862,10 @@ class AdminProfileScreen extends StatelessWidget {
               Navigator.push(context, MaterialPageRoute(
                   builder: (_) => const AdminMrManagementScreen()));
             }),
+            _menuItem(context, Icons.location_city, 'Headquarters & Areas', Colors.indigo, () {
+              Navigator.push(context, MaterialPageRoute(
+                  builder: (_) => const AdminHeadquartersScreen()));
+            }),
             _menuItem(context, Icons.people, 'Doctor Management', Colors.green, () {
               Navigator.push(context, MaterialPageRoute(
                   builder: (_) => const AdminDoctorsScreen()));
@@ -3877,13 +4220,19 @@ class AddStockistScreen extends StatefulWidget {
 }
 
 class _AddStockistScreenState extends State<AddStockistScreen> {
-  final _nameController     = TextEditingController();
-  final _phoneController    = TextEditingController();
-  final _emailController    = TextEditingController();
-  final _addressController  = TextEditingController();
-  final _cityController     = TextEditingController();
-  final _pinCodeController  = TextEditingController();
-  final _passwordController = TextEditingController();
+  final _nameController          = TextEditingController();
+  final _phoneController         = TextEditingController();
+  final _emailController         = TextEditingController();
+  final _addressController       = TextEditingController();
+  final _cityController          = TextEditingController();
+  final _pinCodeController       = TextEditingController();
+  final _passwordController      = TextEditingController();
+  // ── Optional business detail fields ──────────────────────────────────────
+  final _dealingCompaniesCtrl    = TextEditingController();
+  final _gstNumberCtrl           = TextEditingController();
+  final _monthlyTurnoverCtrl     = TextEditingController();
+  final _licenseNumberCtrl       = TextEditingController();
+  final _areasCoveringCtrl       = TextEditingController();
 
   bool _isLoading       = false;
   bool _obscurePassword = true;
@@ -3895,12 +4244,17 @@ class _AddStockistScreenState extends State<AddStockistScreen> {
     super.initState();
     if (_isEditing) {
       final d = widget.existingData!;
-      _nameController.text    = d['name']    ?? '';
-      _phoneController.text   = d['phone']   ?? '';
-      _emailController.text   = d['email']   ?? '';
-      _addressController.text = d['address'] ?? '';
-      _cityController.text    = d['city']    ?? '';
-      _pinCodeController.text = d['pinCode'] ?? '';
+      _nameController.text           = d['name']             ?? '';
+      _phoneController.text          = d['phone']            ?? '';
+      _emailController.text          = d['email']            ?? '';
+      _addressController.text        = d['address']          ?? '';
+      _cityController.text           = d['city']             ?? '';
+      _pinCodeController.text        = d['pinCode']          ?? '';
+      _dealingCompaniesCtrl.text     = d['dealingCompanies'] ?? '';
+      _gstNumberCtrl.text            = d['gstNumber']        ?? '';
+      _monthlyTurnoverCtrl.text      = d['monthlyTurnover']  ?? '';
+      _licenseNumberCtrl.text        = d['licenseNumber']    ?? '';
+      _areasCoveringCtrl.text        = d['areasCovering']    ?? '';
     }
   }
 
@@ -3931,13 +4285,18 @@ class _AddStockistScreenState extends State<AddStockistScreen> {
     try {
       if (_isEditing) {
         await _db.collection('users').doc(widget.docId).update({
-          'name':      name,
-          'phone':     phone,
-          'email':     email,
-          'address':   _addressController.text.trim(),
-          'city':      city,
-          'pinCode':   _pinCodeController.text.trim(),
-          'updatedAt': FieldValue.serverTimestamp(),
+          'name':             name,
+          'phone':            phone,
+          'email':            email,
+          'address':          _addressController.text.trim(),
+          'city':             city,
+          'pinCode':          _pinCodeController.text.trim(),
+          'dealingCompanies': _dealingCompaniesCtrl.text.trim(),
+          'gstNumber':        _gstNumberCtrl.text.trim(),
+          'monthlyTurnover':  _monthlyTurnoverCtrl.text.trim(),
+          'licenseNumber':    _licenseNumberCtrl.text.trim(),
+          'areasCovering':    _areasCoveringCtrl.text.trim(),
+          'updatedAt':        FieldValue.serverTimestamp(),
         });
       } else {
         final currentAdmin = _auth.currentUser!;
@@ -3958,16 +4317,21 @@ class _AddStockistScreenState extends State<AddStockistScreen> {
         final newUid = cred.user!.uid;
 
         await _db.collection('users').doc(newUid).set({
-          'name':      name,
-          'email':     email,
-          'phone':     phone,
-          'city':      city,
-          'address':   _addressController.text.trim(),
-          'pinCode':   _pinCodeController.text.trim(),
-          'role':      'stockist',
-          'isActive':  true,
-          'createdAt': FieldValue.serverTimestamp(),
-          'createdBy': currentAdmin.uid,
+          'name':             name,
+          'email':            email,
+          'phone':            phone,
+          'city':             city,
+          'address':          _addressController.text.trim(),
+          'pinCode':          _pinCodeController.text.trim(),
+          'dealingCompanies': _dealingCompaniesCtrl.text.trim(),
+          'gstNumber':        _gstNumberCtrl.text.trim(),
+          'monthlyTurnover':  _monthlyTurnoverCtrl.text.trim(),
+          'licenseNumber':    _licenseNumberCtrl.text.trim(),
+          'areasCovering':    _areasCoveringCtrl.text.trim(),
+          'role':             'stockist',
+          'isActive':         true,
+          'createdAt':        FieldValue.serverTimestamp(),
+          'createdBy':        currentAdmin.uid,
         });
 
         final productsSnapshot = await _db.collection('products').get();
@@ -4012,6 +4376,11 @@ class _AddStockistScreenState extends State<AddStockistScreen> {
     _cityController.dispose();
     _pinCodeController.dispose();
     _passwordController.dispose();
+    _dealingCompaniesCtrl.dispose();
+    _gstNumberCtrl.dispose();
+    _monthlyTurnoverCtrl.dispose();
+    _licenseNumberCtrl.dispose();
+    _areasCoveringCtrl.dispose();
     super.dispose();
   }
 
@@ -4037,6 +4406,42 @@ class _AddStockistScreenState extends State<AddStockistScreen> {
                 'Full address', maxLines: 2),
             _field('Pin Code', _pinCodeController, Icons.pin, 'e.g. 524001',
                 type: TextInputType.number),
+
+            // ── Optional Business Details ──────────────────────────────────
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.all(12),
+              margin: const EdgeInsets.only(bottom: 14),
+              decoration: BoxDecoration(
+                color: Colors.indigo.withOpacity(0.04),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.indigo.withOpacity(0.15)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(children: [
+                    Icon(Icons.business_center_outlined, color: Colors.indigo, size: 18),
+                    SizedBox(width: 6),
+                    Text('Business Details (Optional)',
+                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo, fontSize: 14)),
+                  ]),
+                  const SizedBox(height: 12),
+                  _field('Dealing Companies', _dealingCompaniesCtrl,
+                      Icons.handshake_outlined, 'e.g. Sun Pharma, Cipla, Abbott', maxLines: 2),
+                  _field('GST Number', _gstNumberCtrl,
+                      Icons.receipt_long_outlined, 'e.g. 37AABCU9603R1ZX'),
+                  _field('Monthly Turnover', _monthlyTurnoverCtrl,
+                      Icons.currency_rupee, 'e.g. 5,00,000',
+                      type: TextInputType.text),
+                  _field('Drug License Number', _licenseNumberCtrl,
+                      Icons.verified_outlined, 'e.g. DL-AP-123456'),
+                  _field('Areas Covering', _areasCoveringCtrl,
+                      Icons.map_outlined, 'e.g. Nellore, Kavali, Gudur', maxLines: 2),
+                ],
+              ),
+            ),
+
             if (!_isEditing) ...[
               const SizedBox(height: 14),
               const Text('Password *',
@@ -4705,8 +5110,14 @@ class _AddProductScreenState extends State<AddProductScreen> {
 
   String _selectedDivision = 'Osteon';
   String _selectedCategory = 'Tablet';
-  bool _isLoading  = false;
+  bool _isLoading      = false;
+  bool _uploadingImage = false;
   String _errorMessage = '';
+  // Existing uploaded URLs (from Firestore)
+  List<String> _existingUrls = [];
+  // Newly picked local files (not yet uploaded)
+  List<XFile> _newImages = [];
+  final _picker = ImagePicker();
   bool get _isEditing => widget.existingData != null;
 
   final List<String> _divisions  = ['Osteon', 'Ceflon', 'Generic'];
@@ -4728,7 +5139,39 @@ class _AddProductScreenState extends State<AddProductScreen> {
       _packSizeController.text = d['packSize'] ?? '';
       _selectedDivision        = d['division'] ?? 'Osteon';
       _selectedCategory        = d['category'] ?? 'Tablet';
+      // Load existing visual aid URLs (support both old single + new array)
+      final rawUrls = d['visualAidUrls'];
+      if (rawUrls is List) {
+        _existingUrls = List<String>.from(rawUrls.whereType<String>());
+      } else {
+        final single = d['visualAidUrl'] as String?;
+        if (single != null && single.isNotEmpty) _existingUrls = [single];
+      }
     }
+  }
+
+  // ── Cloudinary helpers ─────────────────────────────────────────
+  static const _cloudName    = 'dfug0y2pv';
+  static const _uploadPreset = 'arka_visual_aids';
+
+  Future<void> _pickImages() async {
+    final files = await _picker.pickMultiImage(imageQuality: 85);
+    if (files.isNotEmpty) setState(() => _newImages.addAll(files));
+  }
+
+  Future<String?> _uploadToCloudinary(XFile file) async {
+    final uri = Uri.parse(
+        'https://api.cloudinary.com/v1_1/$_cloudName/image/upload');
+    final req = http.MultipartRequest('POST', uri)
+      ..fields['upload_preset'] = _uploadPreset
+      ..files.add(await http.MultipartFile.fromPath('file', file.path));
+    final streamed = await req.send();
+    final res = await http.Response.fromStream(streamed);
+    if (res.statusCode == 200) {
+      final json = jsonDecode(res.body) as Map<String, dynamic>;
+      return json['secure_url'] as String?;
+    }
+    return null;
   }
 
   Future<void> _saveProduct() async {
@@ -4746,8 +5189,27 @@ class _AddProductScreenState extends State<AddProductScreen> {
 
     setState(() { _isLoading = true; _errorMessage = ''; });
 
+    // Upload any newly picked images to Cloudinary
+    List<String> uploadedUrls = List.from(_existingUrls);
+    if (_newImages.isNotEmpty) {
+      setState(() => _uploadingImage = true);
+      for (final file in _newImages) {
+        final url = await _uploadToCloudinary(file);
+        if (url == null) {
+          setState(() {
+            _isLoading = false;
+            _uploadingImage = false;
+            _errorMessage = 'Image upload failed. Please try again.';
+          });
+          return;
+        }
+        uploadedUrls.add(url);
+      }
+      setState(() => _uploadingImage = false);
+    }
+
     try {
-      final data = {
+      final data = <String, dynamic>{
         'name':      name,
         'code':      code,
         'mrp':       mrp,
@@ -4757,6 +5219,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
         'category':  _selectedCategory,
         'division':  _selectedDivision,
         'updatedAt': FieldValue.serverTimestamp(),
+        'visualAidUrls': uploadedUrls,
       };
 
       if (_isEditing) {
@@ -4914,6 +5377,147 @@ class _AddProductScreenState extends State<AddProductScreen> {
                 ]),
               ]),
             ),
+
+            // ── Visual Aid Images ──────────────────────────────────────
+            const Text('Visual Aid Images',
+                style: TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 4),
+            Text('Upload one or more product images (admin only)',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 110,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  // Existing uploaded thumbnails
+                  ..._existingUrls.asMap().entries.map((entry) {
+                    final idx = entry.key;
+                    final url = entry.value;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Stack(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: Image.network(
+                              url,
+                              width: 100, height: 110,
+                              fit: BoxFit.cover,
+                              loadingBuilder: (_, child, p) =>
+                                  p == null ? child : const SizedBox(
+                                      width: 100, height: 110,
+                                      child: Center(child: CircularProgressIndicator(strokeWidth: 2))),
+                              errorBuilder: (_, __, ___) => Container(
+                                width: 100, height: 110,
+                                color: Colors.grey.shade200,
+                                child: const Icon(Icons.broken_image, color: Colors.grey),
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            top: 4, right: 4,
+                            child: GestureDetector(
+                              onTap: () => setState(() => _existingUrls.removeAt(idx)),
+                              child: Container(
+                                decoration: const BoxDecoration(
+                                    color: Colors.red, shape: BoxShape.circle),
+                                padding: const EdgeInsets.all(3),
+                                child: const Icon(Icons.close,
+                                    color: Colors.white, size: 14),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                  // Newly picked local thumbnails
+                  ..._newImages.asMap().entries.map((entry) {
+                    final idx = entry.key;
+                    final file = entry.value;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Stack(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: Image.file(
+                              File(file.path),
+                              width: 100, height: 110,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                          Positioned(
+                            top: 4, right: 4,
+                            child: GestureDetector(
+                              onTap: () => setState(() => _newImages.removeAt(idx)),
+                              child: Container(
+                                decoration: const BoxDecoration(
+                                    color: Colors.red, shape: BoxShape.circle),
+                                padding: const EdgeInsets.all(3),
+                                child: const Icon(Icons.close,
+                                    color: Colors.white, size: 14),
+                              ),
+                            ),
+                          ),
+                          // "new" badge
+                          Positioned(
+                            bottom: 4, left: 4,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 5, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.blue.shade700,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Text('NEW',
+                                  style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.bold)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                  // Add more button
+                  if (!_isLoading)
+                    GestureDetector(
+                      onTap: _pickImages,
+                      child: Container(
+                        width: 100, height: 110,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                              color: Colors.grey.shade300,
+                              style: BorderStyle.solid),
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.add_photo_alternate,
+                                size: 32, color: Colors.grey.shade400),
+                            const SizedBox(height: 4),
+                            Text('Add',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade500)),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            if (_uploadingImage)
+              const Padding(
+                padding: EdgeInsets.only(top: 6),
+                child: LinearProgressIndicator(),
+              ),
+            const SizedBox(height: 16),
 
             const SizedBox(height: 20),
             if (_errorMessage.isNotEmpty)
@@ -6499,5 +7103,1142 @@ class _AdminConversionScreenState extends State<AdminConversionScreen>
         ],
       ),
     );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADMIN RCPA SCREEN
+// ─────────────────────────────────────────────────────────────────────────────
+class AdminRcpaScreen extends StatefulWidget {
+  const AdminRcpaScreen({super.key});
+  @override
+  State<AdminRcpaScreen> createState() => _AdminRcpaScreenState();
+}
+
+class _AdminRcpaScreenState extends State<AdminRcpaScreen> {
+  String _searchQuery = '';
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('RCPA Reports'),
+        backgroundColor: Colors.blue,
+        foregroundColor: Colors.white,
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: TextField(
+              onChanged: (v) => setState(() => _searchQuery = v.toLowerCase()),
+              decoration: InputDecoration(
+                hintText: 'Search by MR or doctor',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () => setState(() => _searchQuery = ''))
+                    : null,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              ),
+            ),
+          ),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: _db.collection('rcpa').orderBy('createdAt', descending: true).snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    Icon(Icons.analytics_outlined, size: 80, color: Colors.grey.shade300),
+                    const SizedBox(height: 16),
+                    Text('No RCPA submissions yet.',
+                        style: TextStyle(color: Colors.grey.shade500, fontSize: 16)),
+                  ]));
+                }
+                final docs = snapshot.data!.docs.where((d) {
+                  final data = d.data() as Map<String, dynamic>;
+                  final mr     = (data['mrName']            ?? '').toString().toLowerCase();
+                  final doctor = (data['doctorName']         ?? '').toString().toLowerCase();
+                  final clinic = (data['clinicPharmacyName'] ?? '').toString().toLowerCase();
+                  return _searchQuery.isEmpty ||
+                      mr.contains(_searchQuery) ||
+                      doctor.contains(_searchQuery) ||
+                      clinic.contains(_searchQuery);
+                }).toList();
+                if (docs.isEmpty) return const Center(child: Text('No results match your search.'));
+                return ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  itemCount: docs.length,
+                  itemBuilder: (context, i) {
+                    final data     = docs[i].data() as Map<String, dynamic>;
+                    final products = (data['products'] as List?) ?? [];
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      elevation: 1.5,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () => _showDetail(context, data),
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Row(children: [
+                              CircleAvatar(
+                                radius: 20,
+                                backgroundColor: Colors.blue.withOpacity(0.1),
+                                child: const Icon(Icons.analytics_outlined, color: Colors.blue, size: 20),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Text('Dr. ${data['doctorName'] ?? ''}',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                                Text(
+                                  '${data['doctorSpecialization'] ?? ''}'
+                                  '${(data['doctorHospital'] ?? '').toString().isNotEmpty ? ' • ${data['doctorHospital']}' : ''}',
+                                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                              ])),
+                              Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: Colors.blue.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(data['date'] ?? '',
+                                      style: const TextStyle(fontSize: 11, color: Colors.blue, fontWeight: FontWeight.w600)),
+                                ),
+                                const SizedBox(height: 4),
+                                Text('by ${data['mrName'] ?? ''}',
+                                    style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+                              ]),
+                            ]),
+                            const SizedBox(height: 8),
+                            const Divider(height: 1),
+                            const SizedBox(height: 8),
+                            if ((data['doctorHospital'] ?? '').toString().isNotEmpty)
+                              Row(children: [
+                                Icon(Icons.local_hospital_outlined, size: 14, color: Colors.teal.shade600),
+                                const SizedBox(width: 4),
+                                Expanded(child: Text('Clinic: ${data['doctorHospital']}',
+                                    style: TextStyle(fontSize: 12, color: Colors.teal.shade700, fontWeight: FontWeight.w500))),
+                              ]),
+                            if ((data['doctorPharmacy'] ?? '').toString().isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Row(children: [
+                                  Icon(Icons.local_pharmacy_outlined, size: 14, color: Colors.green.shade600),
+                                  const SizedBox(width: 4),
+                                  Expanded(child: Text('Pharmacy: ${data['doctorPharmacy']}',
+                                      style: TextStyle(fontSize: 12, color: Colors.green.shade700, fontWeight: FontWeight.w500))),
+                                ]),
+                              ),
+                            const SizedBox(height: 4),
+                            Row(children: [
+                              Icon(Icons.medication_outlined, size: 14, color: Colors.blue.shade600),
+                              const SizedBox(width: 4),
+                              Text('${products.length} product(s)',
+                                  style: TextStyle(fontSize: 12, color: Colors.blue.shade700)),
+                              const Spacer(),
+                              const Text('Tap for details →', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                            ]),
+                            if ((data['competitorBrands'] ?? '').toString().isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                  Icon(Icons.storefront_outlined, size: 14, color: Colors.red.shade400),
+                                  const SizedBox(width: 4),
+                                  Expanded(child: Text(data['competitorBrands'],
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(fontSize: 11, color: Colors.red.shade400))),
+                                ]),
+                              ),
+                          ]),
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDetail(BuildContext context, Map<String, dynamic> data) {
+    final products = (data['products'] as List?) ?? [];
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => DraggableScrollableSheet(
+        initialChildSize: 0.85, minChildSize: 0.5, maxChildSize: 0.95, expand: false,
+        builder: (_, ctrl) => SingleChildScrollView(
+          controller: ctrl,
+          padding: const EdgeInsets.all(20),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            // drag handle
+            Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)))),
+            Row(children: [
+              const Icon(Icons.analytics_outlined, color: Colors.blue),
+              const SizedBox(width: 8),
+              const Text('RCPA Detail', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const Spacer(),
+              Text(data['date'] ?? '', style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.w600)),
+            ]),
+            const Divider(height: 24),
+
+            _row('MR', data['mrName'] ?? '', Icons.badge, Colors.blue),
+            const SizedBox(height: 12),
+
+            _section('Doctor', Colors.blue, [
+              _row('Name',           'Dr. ${data['doctorName'] ?? ''}', Icons.person, Colors.blue),
+              const SizedBox(height: 4),
+              _row('Specialization', data['doctorSpecialization'] ?? '—', Icons.medical_services_outlined, Colors.grey),
+              if ((data['doctorHospital'] ?? '').toString().isNotEmpty) ...[
+                const SizedBox(height: 4),
+                _row('Clinic / Hospital', data['doctorHospital'], Icons.local_hospital_outlined, Colors.teal),
+              ],
+              if ((data['doctorPharmacy'] ?? '').toString().isNotEmpty) ...[
+                const SizedBox(height: 4),
+                _row('Pharmacy', data['doctorPharmacy'], Icons.local_pharmacy_outlined, Colors.green),
+              ],
+            ]),
+            const SizedBox(height: 12),
+
+
+            // Products table
+            const Row(children: [
+              Icon(Icons.medication_outlined, color: Colors.blue, size: 18),
+              SizedBox(width: 6),
+              Text('Products & Avg Qty', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.blue)),
+            ]),
+            const SizedBox(height: 8),
+            products.isEmpty
+              ? const Text('No products recorded.', style: TextStyle(color: Colors.grey))
+              : Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.blue.shade100),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Column(children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
+                      ),
+                      child: Row(children: [
+                        const Expanded(child: Text('Product', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                        Text('Division', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                        const SizedBox(width: 20),
+                        const SizedBox(width: 55, child: Text('Avg Qty', textAlign: TextAlign.center,
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                      ]),
+                    ),
+                    ...products.asMap().entries.map((e) {
+                      final p   = e.value as Map<String, dynamic>;
+                      final div = p['division'] ?? '';
+                      Color dc  = div == 'Osteon' ? Colors.blue : div == 'Ceflon' ? Colors.teal : Colors.green;
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: e.key.isEven ? Colors.white : Colors.grey.shade50,
+                          border: Border(top: BorderSide(color: Colors.blue.shade50)),
+                        ),
+                        child: Row(children: [
+                          Expanded(child: Text(p['productName'] ?? '', style: const TextStyle(fontSize: 13))),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(color: dc.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
+                            child: Text(div, style: TextStyle(fontSize: 10, color: dc, fontWeight: FontWeight.bold)),
+                          ),
+                          SizedBox(width: 55,
+                            child: Text('${p['avgQty'] ?? 0}',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14))),
+                        ]),
+                      );
+                    }),
+                  ]),
+                ),
+            const SizedBox(height: 16),
+
+            if ((data['otherMedicinesNote'] ?? '').toString().isNotEmpty) ...[
+              _section('Other Medicines', Colors.purple, [
+                Text(data['otherMedicinesNote'], style: const TextStyle(fontSize: 13)),
+              ]),
+              const SizedBox(height: 12),
+            ],
+            if ((data['competitorBrands'] ?? '').toString().isNotEmpty)
+              _section('Competitor Brands', Colors.red, [
+                Text(data['competitorBrands'], style: const TextStyle(fontSize: 13)),
+              ]),
+            const SizedBox(height: 30),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _section(String title, Color color, List<Widget> children) => Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: color.withOpacity(0.04),
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: color.withOpacity(0.2)),
+    ),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 13)),
+      const SizedBox(height: 8),
+      ...children,
+    ]),
+  );
+
+  Widget _row(String label, String value, IconData icon, Color color) =>
+    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Icon(icon, size: 15, color: color),
+      const SizedBox(width: 6),
+      Text('$label: ', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+      Expanded(child: Text(value.isEmpty ? '—' : value,
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500))),
+    ]);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HEADQUARTERS & AREAS MANAGEMENT
+// ─────────────────────────────────────────────────────────────────────────────
+class AdminHeadquartersScreen extends StatelessWidget {
+  const AdminHeadquartersScreen({super.key});
+
+  Future<void> _addHq(BuildContext context) async {
+    final ctrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Row(children: [
+          Icon(Icons.location_city, color: Color(0xFF1565C0)),
+          SizedBox(width: 8),
+          Text('Add Headquarters'),
+        ]),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Headquarters Name',
+            hintText: 'e.g. Nellore',
+            prefixIcon: Icon(Icons.location_city_outlined),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Add')),
+        ],
+      ),
+    );
+    if (ok == true) {
+      final name = ctrl.text.trim();
+      if (name.isEmpty) return;
+      await _db.collection('headquarters').add({
+        'name': name,
+        'createdAt': FieldValue.serverTimestamp(),
+        'createdBy': _auth.currentUser?.uid,
+      });
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('✅ HQ "$name" added'), backgroundColor: Colors.green),
+        );
+      }
+    }
+  }
+
+  Future<void> _renameHq(BuildContext context, String hqId, String currentName) async {
+    final ctrl = TextEditingController(text: currentName);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Rename Headquarters'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Headquarters Name'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Save')),
+        ],
+      ),
+    );
+    if (ok == true && ctrl.text.trim().isNotEmpty) {
+      await _db.collection('headquarters').doc(hqId).update({'name': ctrl.text.trim()});
+    }
+  }
+
+  Future<void> _deleteHq(BuildContext context, String hqId, String name) async {
+    final assigned = await _db
+        .collection('users')
+        .where('role', isEqualTo: 'mr')
+        .where('headquartersId', isEqualTo: hqId)
+        .limit(1)
+        .get();
+    if (assigned.docs.isNotEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Cannot delete: HQ is assigned to one or more MRs.'),
+          backgroundColor: Colors.red,
+        ));
+      }
+      return;
+    }
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete Headquarters'),
+        content: Text('Delete "$name" and all its areas? This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true) {
+      final batch = _db.batch();
+      final areas = await _db.collection('areas').where('hqId', isEqualTo: hqId).get();
+      for (final d in areas.docs) {
+        batch.delete(d.reference);
+      }
+      batch.delete(_db.collection('headquarters').doc(hqId));
+      await batch.commit();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Headquarters & Areas'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add_location_alt),
+            tooltip: 'Add Headquarters',
+            onPressed: () => _addHq(context),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _addHq(context),
+        icon: const Icon(Icons.add),
+        label: const Text('Add HQ'),
+      ),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: _db.collection('headquarters').orderBy('name').snapshots(),
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final docs = snap.data?.docs ?? [];
+          if (docs.isEmpty) {
+            return Center(
+              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Icon(Icons.location_city, size: 80, color: Colors.grey.shade300),
+                const SizedBox(height: 12),
+                Text('No headquarters yet', style: TextStyle(color: Colors.grey.shade500)),
+                const SizedBox(height: 4),
+                Text('Tap + to add your first HQ',
+                    style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
+              ]),
+            );
+          }
+          return ListView.builder(
+            padding: const EdgeInsets.all(12),
+            itemCount: docs.length,
+            itemBuilder: (context, i) {
+              final hq = docs[i].data() as Map<String, dynamic>;
+              final hqId = docs[i].id;
+              final name = hq['name'] ?? '';
+              return Card(
+                margin: const EdgeInsets.only(bottom: 10),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: ListTile(
+                  leading: const CircleAvatar(
+                    backgroundColor: Color(0xFFE3F2FD),
+                    child: Icon(Icons.location_city, color: Color(0xFF1565C0)),
+                  ),
+                  title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: StreamBuilder<QuerySnapshot>(
+                    stream: _db.collection('areas').where('hqId', isEqualTo: hqId).snapshots(),
+                    builder: (context, areaSnap) {
+                      final count = areaSnap.data?.docs.length ?? 0;
+                      return Text('$count area${count == 1 ? '' : 's'}');
+                    },
+                  ),
+                  trailing: PopupMenuButton<String>(
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(value: 'rename', child: Row(children: [
+                        Icon(Icons.edit, size: 18, color: Colors.blue),
+                        SizedBox(width: 8),
+                        Text('Rename'),
+                      ])),
+                      const PopupMenuItem(value: 'delete', child: Row(children: [
+                        Icon(Icons.delete, size: 18, color: Colors.red),
+                        SizedBox(width: 8),
+                        Text('Delete', style: TextStyle(color: Colors.red)),
+                      ])),
+                    ],
+                    onSelected: (v) {
+                      if (v == 'rename') _renameHq(context, hqId, name);
+                      if (v == 'delete') _deleteHq(context, hqId, name);
+                    },
+                  ),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => AdminHqAreasScreen(hqId: hqId, hqName: name),
+                    ),
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+class AdminHqAreasScreen extends StatelessWidget {
+  final String hqId;
+  final String hqName;
+  const AdminHqAreasScreen({super.key, required this.hqId, required this.hqName});
+
+  Future<void> _addArea(BuildContext context) async {
+    final ctrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Row(children: [
+          const Icon(Icons.add_location, color: Color(0xFF1565C0)),
+          const SizedBox(width: 8),
+          Flexible(child: Text('Add Area to $hqName')),
+        ]),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Area Name',
+            hintText: 'e.g. Nellore North',
+            prefixIcon: Icon(Icons.location_on_outlined),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Add')),
+        ],
+      ),
+    );
+    if (ok == true && ctrl.text.trim().isNotEmpty) {
+      await _db.collection('areas').add({
+        'name': ctrl.text.trim(),
+        'hqId': hqId,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    }
+  }
+
+  Future<void> _renameArea(BuildContext context, String areaId, String currentName) async {
+    final ctrl = TextEditingController(text: currentName);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Rename Area'),
+        content: TextField(controller: ctrl, autofocus: true,
+            decoration: const InputDecoration(labelText: 'Area Name')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Save')),
+        ],
+      ),
+    );
+    if (ok == true && ctrl.text.trim().isNotEmpty) {
+      await _db.collection('areas').doc(areaId).update({'name': ctrl.text.trim()});
+    }
+  }
+
+  Future<void> _deleteArea(BuildContext context, String areaId, String name) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete Area'),
+        content: Text('Delete "$name"? MRs assigned to this area will lose it.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true) {
+      await _db.collection('areas').doc(areaId).delete();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('$hqName • Areas')),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _addArea(context),
+        icon: const Icon(Icons.add),
+        label: const Text('Add Area'),
+      ),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: _db.collection('areas').where('hqId', isEqualTo: hqId).snapshots(),
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final docs = (snap.data?.docs ?? []).toList()
+            ..sort((a, b) {
+              final an = ((a.data() as Map)['name'] ?? '').toString();
+              final bn = ((b.data() as Map)['name'] ?? '').toString();
+              return an.toLowerCase().compareTo(bn.toLowerCase());
+            });
+          if (docs.isEmpty) {
+            return Center(
+              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Icon(Icons.location_off, size: 70, color: Colors.grey.shade300),
+                const SizedBox(height: 10),
+                Text('No areas yet under $hqName',
+                    style: TextStyle(color: Colors.grey.shade500)),
+              ]),
+            );
+          }
+          return ListView.builder(
+            padding: const EdgeInsets.all(12),
+            itemCount: docs.length,
+            itemBuilder: (context, i) {
+              final a = docs[i].data() as Map<String, dynamic>;
+              final id = docs[i].id;
+              return Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ListTile(
+                  leading: const Icon(Icons.location_on, color: Color(0xFF1565C0)),
+                  title: Text(a['name'] ?? ''),
+                  trailing: PopupMenuButton<String>(
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(value: 'rename', child: Row(children: [
+                        Icon(Icons.edit, size: 18, color: Colors.blue),
+                        SizedBox(width: 8),
+                        Text('Rename'),
+                      ])),
+                      const PopupMenuItem(value: 'delete', child: Row(children: [
+                        Icon(Icons.delete, size: 18, color: Colors.red),
+                        SizedBox(width: 8),
+                        Text('Delete', style: TextStyle(color: Colors.red)),
+                      ])),
+                    ],
+                    onSelected: (v) {
+                      if (v == 'rename') _renameArea(context, id, a['name'] ?? '');
+                      if (v == 'delete') _deleteArea(context, id, a['name'] ?? '');
+                    },
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ASSIGN HQ & AREAS TO MR
+// ─────────────────────────────────────────────────────────────────────────────
+class AdminMrAssignHqAreasScreen extends StatefulWidget {
+  final String mrId;
+  final Map<String, dynamic> mrData;
+  const AdminMrAssignHqAreasScreen({super.key, required this.mrId, required this.mrData});
+
+  @override
+  State<AdminMrAssignHqAreasScreen> createState() => _AdminMrAssignHqAreasScreenState();
+}
+
+class _AdminMrAssignHqAreasScreenState extends State<AdminMrAssignHqAreasScreen> {
+  String? _hqId;
+  Set<String> _selectedAreaIds = {};
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _hqId = widget.mrData['headquartersId'] as String?;
+    final ids = (widget.mrData['assignedAreaIds'] as List?)?.cast<String>() ?? const [];
+    _selectedAreaIds = ids.toSet();
+  }
+
+  Future<void> _save() async {
+    if (_hqId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Please select a headquarters.'),
+        backgroundColor: Colors.red,
+      ));
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      final areaDocs = await _db
+          .collection('areas')
+          .where(FieldPath.documentId, whereIn: _selectedAreaIds.isEmpty
+              ? ['__none__']
+              : _selectedAreaIds.toList())
+          .get();
+      final names = areaDocs.docs
+          .map((d) => (d.data())['name']?.toString() ?? '')
+          .where((s) => s.isNotEmpty)
+          .toList()
+        ..sort();
+      await _db.collection('users').doc(widget.mrId).update({
+        'headquartersId': _hqId,
+        'assignedAreaIds': _selectedAreaIds.toList(),
+        'area': names.join(', '),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('✅ Assignment saved'),
+          backgroundColor: Colors.green,
+        ));
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      setState(() => _saving = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Failed to save: $e'),
+          backgroundColor: Colors.red,
+        ));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('Assign HQ • ${widget.mrData['name'] ?? 'MR'}')),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Headquarters', style: TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            StreamBuilder<QuerySnapshot>(
+              stream: _db.collection('headquarters').orderBy('name').snapshots(),
+              builder: (context, snap) {
+                if (!snap.hasData) return const LinearProgressIndicator();
+                final hqs = snap.data!.docs;
+                if (hqs.isEmpty) {
+                  return Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.orange.shade200),
+                    ),
+                    child: const Text(
+                      'No headquarters defined yet. Create one from Manage → Headquarters & Areas.',
+                      style: TextStyle(color: Colors.orange),
+                    ),
+                  );
+                }
+                return DropdownButtonFormField<String>(
+                  value: hqs.any((d) => d.id == _hqId) ? _hqId : null,
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.location_city_outlined),
+                    hintText: 'Select Headquarters',
+                  ),
+                  items: hqs.map((d) {
+                    final data = d.data() as Map<String, dynamic>;
+                    return DropdownMenuItem(value: d.id, child: Text(data['name'] ?? ''));
+                  }).toList(),
+                  onChanged: (v) {
+                    setState(() {
+                      if (_hqId != v) {
+                        _selectedAreaIds = {};
+                      }
+                      _hqId = v;
+                    });
+                  },
+                );
+              },
+            ),
+            const SizedBox(height: 18),
+            const Text('Areas', style: TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            if (_hqId == null)
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text('Select a headquarters to choose areas.'),
+              )
+            else
+              StreamBuilder<QuerySnapshot>(
+                stream: _db.collection('areas').where('hqId', isEqualTo: _hqId).snapshots(),
+                builder: (context, snap) {
+                  if (!snap.hasData) return const LinearProgressIndicator();
+                  final areas = (snap.data!.docs).toList()
+                    ..sort((a, b) {
+                      final an = ((a.data() as Map)['name'] ?? '').toString();
+                      final bn = ((b.data() as Map)['name'] ?? '').toString();
+                      return an.toLowerCase().compareTo(bn.toLowerCase());
+                    });
+                  if (areas.isEmpty) {
+                    return Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.orange.shade200),
+                      ),
+                      child: const Text('No areas under this HQ. Add some from Manage → Headquarters & Areas.'),
+                    );
+                  }
+                  return Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: areas.map((d) {
+                      final data = d.data() as Map<String, dynamic>;
+                      final id = d.id;
+                      final selected = _selectedAreaIds.contains(id);
+                      return FilterChip(
+                        label: Text(data['name'] ?? ''),
+                        selected: selected,
+                        onSelected: (val) => setState(() {
+                          if (val) {
+                            _selectedAreaIds.add(id);
+                          } else {
+                            _selectedAreaIds.remove(id);
+                          }
+                        }),
+                        selectedColor: const Color(0xFF1565C0).withOpacity(0.15),
+                        checkmarkColor: const Color(0xFF1565C0),
+                      );
+                    }).toList(),
+                  );
+                },
+              ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: _saving
+                  ? const Center(child: CircularProgressIndicator())
+                  : ElevatedButton.icon(
+                      onPressed: _save,
+                      icon: const Icon(Icons.save),
+                      label: const Text('Save Assignment',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADMIN MR TOUR PLAN — monthly calendar, tap day to assign areas
+// ─────────────────────────────────────────────────────────────────────────────
+class AdminMrTourPlanScreen extends StatefulWidget {
+  final String mrId;
+  final Map<String, dynamic> mrData;
+  const AdminMrTourPlanScreen({super.key, required this.mrId, required this.mrData});
+
+  @override
+  State<AdminMrTourPlanScreen> createState() => _AdminMrTourPlanScreenState();
+}
+
+class _AdminMrTourPlanScreenState extends State<AdminMrTourPlanScreen> {
+  int _year = DateTime.now().year;
+  int _month = DateTime.now().month;
+  static const _months = ['Jan','Feb','Mar','Apr','May','Jun',
+    'Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  String _pad(int n) => n.toString().padLeft(2, '0');
+  String get _monthKey => '$_year-${_pad(_month)}';
+  String get _planDocId => '${widget.mrId}_$_monthKey';
+
+  String? get _hqId => widget.mrData['headquartersId'] as String?;
+  List<String> get _assignedAreaIds =>
+      (widget.mrData['assignedAreaIds'] as List?)?.cast<String>() ?? const [];
+
+  @override
+  Widget build(BuildContext context) {
+    if (_hqId == null || _assignedAreaIds.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(title: Text('Tour Plan • ${widget.mrData['name'] ?? 'MR'}')),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Icon(Icons.warning_amber, size: 60, color: Colors.orange.shade400),
+              const SizedBox(height: 12),
+              const Text('No HQ or areas assigned to this MR.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              const Text('Assign HQ & areas first to create a tour plan.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey)),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => AdminMrAssignHqAreasScreen(
+                    mrId: widget.mrId, mrData: widget.mrData,
+                  )),
+                ),
+                icon: const Icon(Icons.assignment_ind),
+                label: const Text('Assign HQ & Areas'),
+              ),
+            ]),
+          ),
+        ),
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(title: Text('Tour Plan • ${widget.mrData['name'] ?? 'MR'}')),
+      body: Column(children: [
+        // Month switcher
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+          child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            IconButton(
+              onPressed: () => setState(() {
+                if (_month == 1) { _month = 12; _year--; } else { _month--; }
+              }),
+              icon: const Icon(Icons.chevron_left),
+            ),
+            Text('${_months[_month - 1]} $_year',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            IconButton(
+              onPressed: () => setState(() {
+                if (_month == 12) { _month = 1; _year++; } else { _month++; }
+              }),
+              icon: const Icon(Icons.chevron_right),
+            ),
+          ]),
+        ),
+        // Legend
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(children: [
+            _legendDot(Colors.green, 'Planned'),
+            const SizedBox(width: 14),
+            _legendDot(Colors.grey.shade300, 'No plan'),
+            const Spacer(),
+            const Text('Tap a day to assign areas',
+                style: TextStyle(fontSize: 11, color: Colors.grey)),
+          ]),
+        ),
+        const SizedBox(height: 8),
+        Expanded(
+          child: StreamBuilder<DocumentSnapshot>(
+            stream: _db.collection('tour_plans').doc(_planDocId).snapshots(),
+            builder: (context, snap) {
+              final plan = (snap.data?.data() as Map<String, dynamic>?) ?? {};
+              final days = (plan['days'] as Map?)?.cast<String, dynamic>() ?? {};
+              return SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
+                child: _calendarGrid(days),
+              );
+            },
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _legendDot(Color c, String label) => Row(mainAxisSize: MainAxisSize.min, children: [
+    Container(width: 10, height: 10,
+        decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
+    const SizedBox(width: 4),
+    Text(label, style: const TextStyle(fontSize: 11)),
+  ]);
+
+  Widget _calendarGrid(Map<String, dynamic> days) {
+    final daysInMonth = DateUtils.getDaysInMonth(_year, _month);
+    final firstWeekday = DateTime(_year, _month, 1).weekday; // 1=Mon..7=Sun
+    final mondayOffset = firstWeekday - 1; // cells before day 1
+    final cells = <Widget>[];
+    const headers = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    for (final h in headers) {
+      cells.add(Center(
+        child: Text(h, style: const TextStyle(
+            fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey)),
+      ));
+    }
+    for (var i = 0; i < mondayOffset; i++) {
+      cells.add(const SizedBox.shrink());
+    }
+    for (var d = 1; d <= daysInMonth; d++) {
+      final key = '$_year-${_pad(_month)}-${_pad(d)}';
+      final dayData = (days[key] as Map?)?.cast<String, dynamic>();
+      final hasPlan = dayData != null && (dayData['areaIds'] as List?)?.isNotEmpty == true;
+      final dt = DateTime(_year, _month, d);
+      final isSun = dt.weekday == DateTime.sunday;
+      cells.add(InkWell(
+        onTap: () => _editDay(key, dayData),
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          margin: const EdgeInsets.all(2),
+          decoration: BoxDecoration(
+            color: hasPlan ? Colors.green.shade100 : Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: hasPlan ? Colors.green.shade400 : Colors.grey.shade300,
+            ),
+          ),
+          padding: const EdgeInsets.all(4),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text('$d',
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: isSun ? Colors.red.shade300 : Colors.black87)),
+              if (hasPlan)
+                Text('${(dayData['areaIds'] as List).length} area${(dayData['areaIds'] as List).length == 1 ? '' : 's'}',
+                    style: TextStyle(fontSize: 9, color: Colors.green.shade800)),
+            ],
+          ),
+        ),
+      ));
+    }
+    return GridView.count(
+      crossAxisCount: 7,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      childAspectRatio: 0.95,
+      children: cells,
+    );
+  }
+
+  Future<void> _editDay(String dateKey, Map<String, dynamic>? existing) async {
+    final areasSnap = await _db
+        .collection('areas')
+        .where(FieldPath.documentId, whereIn: _assignedAreaIds)
+        .get();
+    final allAreas = areasSnap.docs.map((d) => {
+      'id': d.id,
+      'name': (d.data())['name']?.toString() ?? '',
+    }).toList()
+      ..sort((a, b) => (a['name'] ?? '').toString().toLowerCase()
+          .compareTo((b['name'] ?? '').toString().toLowerCase()));
+
+    Set<String> selected = {
+      ...((existing?['areaIds'] as List?)?.cast<String>() ?? const [])
+    };
+
+    if (!mounted) return;
+    final result = await showDialog<String>(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: Row(children: [
+            const Icon(Icons.event_note, color: Color(0xFF1565C0)),
+            const SizedBox(width: 8),
+            Flexible(child: Text('Plan for $dateKey',
+                style: const TextStyle(fontSize: 16))),
+          ]),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: allAreas.isEmpty
+                ? const Text('No areas available for this MR.')
+                : ListView(shrinkWrap: true, children: allAreas.map((a) {
+                    final id = a['id']!;
+                    return CheckboxListTile(
+                      dense: true,
+                      title: Text(a['name'] ?? ''),
+                      value: selected.contains(id),
+                      onChanged: (v) => setD(() {
+                        if (v == true) {
+                          selected.add(id);
+                        } else {
+                          selected.remove(id);
+                        }
+                      }),
+                    );
+                  }).toList()),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, 'cancel'),
+              child: const Text('Cancel'),
+            ),
+            if (existing != null)
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, 'clear'),
+                child: const Text('Clear Day', style: TextStyle(color: Colors.red)),
+              ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, 'save'),
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (result == null || result == 'cancel') return;
+
+    final docRef = _db.collection('tour_plans').doc(_planDocId);
+
+    if (result == 'clear') {
+      await docRef.set({
+        'mrId': widget.mrId,
+        'hqId': _hqId,
+        'month': _monthKey,
+        'updatedAt': FieldValue.serverTimestamp(),
+        'days': {dateKey: FieldValue.delete()},
+      }, SetOptions(merge: true));
+      return;
+    }
+
+    final names = allAreas
+        .where((a) => selected.contains(a['id']))
+        .map((a) => a['name'] ?? '')
+        .toList();
+    await docRef.set({
+      'mrId': widget.mrId,
+      'hqId': _hqId,
+      'month': _monthKey,
+      'updatedAt': FieldValue.serverTimestamp(),
+      'days': {
+        dateKey: {
+          'areaIds': selected.toList(),
+          'areaNames': names,
+        },
+      },
+    }, SetOptions(merge: true));
   }
 }
