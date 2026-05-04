@@ -18,16 +18,18 @@ class _CheckInSession {
   static String? doctorId;
   static String? doctorName;
   static DateTime? checkInTime;
+  static String? visitId; // doc id of the visits/{id} record for this check-in
 
   static bool isValid() {
     // Session stays active until explicitly cleared via checkOut()
     return doctorId != null && checkInTime != null;
   }
 
-  static void set(String id, String name) {
+  static void set(String id, String name, {String? visitId}) {
     doctorId = id;
     doctorName = name;
     checkInTime = DateTime.now();
+    _CheckInSession.visitId = visitId;
     _checkInNotifier.value = id;     // ← notify all cards
   }
 
@@ -35,6 +37,7 @@ class _CheckInSession {
     doctorId = null;
     doctorName = null;
     checkInTime = null;
+    visitId = null;
     _checkInNotifier.value = null;   // ← notify all cards
   }
 }
@@ -488,9 +491,27 @@ class _MrDashboardScreenState extends State<MrDashboardScreen> {
                       Navigator.push(context,
                           MaterialPageRoute(builder: (_) => const MrSubmitReportScreen()));
                     }),
-                    _quickAction(context, 'Apply Leave', Icons.event_busy, Colors.red, () {
-                      Navigator.push(context,
-                          MaterialPageRoute(builder: (_) => const MrApplyLeaveScreen()));
+                    _quickAction(context, 'Promoted Products', Icons.campaign, Colors.deepOrange, () {
+                      // Promoted-products quick action requires an active check-in,
+                      // since promotions are written onto the active visit doc.
+                      final visitId = _CheckInSession.visitId;
+                      if (!_CheckInSession.isValid() || visitId == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                          content: Text('Check in with a doctor first to record promoted products.'),
+                          backgroundColor: Colors.orange,
+                        ));
+                        return;
+                      }
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => MrPromoteProductsScreen(
+                            doctorId: _CheckInSession.doctorId!,
+                            doctorName: _CheckInSession.doctorName ?? '',
+                            visitId: visitId,
+                          ),
+                        ),
+                      );
                     }),
                     _quickAction(context, 'Add Doctor', Icons.person_add, Colors.teal, () {
                       Navigator.push(context,
@@ -994,10 +1015,24 @@ class _MrDoctorsScreenState extends State<MrDoctorsScreen> {
                     (_search.isEmpty || name.contains(_search) || hospital.contains(_search));
               }).toList();
               if (docs.isEmpty) return Center(child: Text('No doctors match your filter.', style: TextStyle(color: Colors.grey.shade500)));
-              return ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                itemCount: docs.length,
-                itemBuilder: (context, i) => _MrDoctorCard(docId: docs[i].id, data: docs[i].data() as Map<String, dynamic>),
+              // Float the currently checked-in doctor to the top so the MR
+              // can see who they still need to check out from.
+              return ValueListenableBuilder<String?>(
+                valueListenable: _checkInNotifier,
+                builder: (context, activeDoctorId, _) {
+                  if (activeDoctorId != null) {
+                    final idx = docs.indexWhere((d) => d.id == activeDoctorId);
+                    if (idx > 0) {
+                      final active = docs.removeAt(idx);
+                      docs.insert(0, active);
+                    }
+                  }
+                  return ListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    itemCount: docs.length,
+                    itemBuilder: (context, i) => _MrDoctorCard(docId: docs[i].id, data: docs[i].data() as Map<String, dynamic>),
+                  );
+                },
               );
             },
           ),
@@ -1110,12 +1145,12 @@ class _MrDoctorCardState extends State<_MrDoctorCard> {
       _activeCheckInDoctorId = widget.docId;
       _activeCheckInDoctorName = widget.data['name'];
       _activeCheckInTime = DateTime.now();
-      _CheckInSession.set(widget.docId, widget.data['name'] ?? '');
-      await db.collection('visits').add({
+      final visitRef = await db.collection('visits').add({
         'mrId': uid, 'doctorId': widget.docId, 'doctorName': widget.data['name'],
         'date': today, 'timestamp': FieldValue.serverTimestamp(),
         'mrLat': pos.latitude, 'mrLng': pos.longitude, 'distanceMeters': distance.toInt(),
       });
+      _CheckInSession.set(widget.docId, widget.data['name'] ?? '', visitId: visitRef.id);
       await db.collection('attendance').doc('${uid}_$today').set({
         'mrId': uid, 'date': today, 'status': 'present', 'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
@@ -1150,6 +1185,9 @@ class _MrDoctorCardState extends State<_MrDoctorCard> {
   void _checkOut() {
     final name = _CheckInSession.doctorName ?? 'doctor';
     _CheckInSession.clear();
+    _activeCheckInDoctorId = null;
+    _activeCheckInDoctorName = null;
+    _activeCheckInTime = null;
     if (mounted) {
       _showMsg('✅ Checked out from $name. You can now check in with another doctor.', Colors.green);
       setState(() {});
@@ -1383,37 +1421,83 @@ class _MrDoctorCardState extends State<_MrDoctorCard> {
                         final sessionValid = _CheckInSession.isValid();
                         final anotherIsCheckedIn = sessionValid && activeId != widget.docId;
                         final isMyCheckIn       = sessionValid && activeId == widget.docId;
-                        return Tooltip(
-                          message: anotherIsCheckedIn
-                              ? 'Check out from ${_CheckInSession.doctorName ?? 'current doctor'} first'
-                              : '',
-                          child: ElevatedButton(
-                            onPressed: anotherIsCheckedIn
-                                ? null
-                                : isMyCheckIn
-                                    ? _checkOut
-                                    : _checkIn,
-                            style: ElevatedButton.styleFrom(
-                              minimumSize: const Size(72, 32),
-                              padding: const EdgeInsets.symmetric(horizontal: 10),
-                              backgroundColor: isMyCheckIn
-                                  ? Colors.red.shade600
-                                  : anotherIsCheckedIn
-                                      ? Colors.grey.shade300
-                                      : null,
-                              foregroundColor: isMyCheckIn
-                                  ? Colors.white
-                                  : anotherIsCheckedIn
-                                      ? Colors.grey.shade500
-                                      : null,
+                        return Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Tooltip(
+                              message: anotherIsCheckedIn
+                                  ? 'Check out from ${_CheckInSession.doctorName ?? 'current doctor'} first'
+                                  : '',
+                              child: ElevatedButton(
+                                onPressed: anotherIsCheckedIn
+                                    ? null
+                                    : isMyCheckIn
+                                        ? _checkOut
+                                        : _checkIn,
+                                style: ElevatedButton.styleFrom(
+                                  minimumSize: const Size(72, 32),
+                                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                                  backgroundColor: isMyCheckIn
+                                      ? Colors.red.shade600
+                                      : anotherIsCheckedIn
+                                          ? Colors.grey.shade300
+                                          : null,
+                                  foregroundColor: isMyCheckIn
+                                      ? Colors.white
+                                      : anotherIsCheckedIn
+                                          ? Colors.grey.shade500
+                                          : null,
+                                ),
+                                child: Text(
+                                  isMyCheckIn
+                                      ? 'Check Out'
+                                      : 'Check In',
+                                  style: const TextStyle(fontSize: 11),
+                                ),
+                              ),
                             ),
-                            child: Text(
-                              isMyCheckIn
-                                  ? 'Check Out'
-                                  : 'Check In',
-                              style: const TextStyle(fontSize: 11),
-                            ),
-                          ),
+                            // Quick action: only while THIS doctor is the active check-in.
+                            if (isMyCheckIn) ...[
+                              const SizedBox(height: 4),
+                              SizedBox(
+                                width: 92,
+                                height: 28,
+                                child: ElevatedButton.icon(
+                                  onPressed: () {
+                                    final visitId = _CheckInSession.visitId;
+                                    if (visitId == null) {
+                                      _showMsg(
+                                        'Cannot record promotion — no active visit.',
+                                        Colors.orange,
+                                      );
+                                      return;
+                                    }
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => MrPromoteProductsScreen(
+                                          doctorId: widget.docId,
+                                          doctorName: widget.data['name'] ?? '',
+                                          visitId: visitId,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  icon: const Icon(Icons.campaign, size: 13),
+                                  label: const Text(
+                                    'Promoted',
+                                    style: TextStyle(fontSize: 10),
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.orange.shade600,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         );
                       },
                     ),
@@ -1461,34 +1545,69 @@ class _MrDoctorCardState extends State<_MrDoctorCard> {
                           ),
                         );
                         break;
+                      case 'promote':
+                        final visitId = _CheckInSession.visitId;
+                        if (visitId == null) {
+                          _showMsg(
+                            'Cannot record promotion — no active visit.',
+                            Colors.orange,
+                          );
+                          return;
+                        }
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => MrPromoteProductsScreen(
+                              doctorId: widget.docId,
+                              doctorName: widget.data['name'] ?? '',
+                              visitId: visitId,
+                            ),
+                          ),
+                        );
+                        break;
                     }
                   },
-                  itemBuilder: (_) => [
-                    PopupMenuItem<String>(
-                      value: 'phone_order',
-                      child: Row(children: [
-                        Icon(Icons.phone_in_talk, size: 18, color: Colors.deepPurple.shade400),
-                        const SizedBox(width: 10),
-                        const Text('POB'),
-                      ]),
-                    ),
-                    const PopupMenuItem<String>(
-                      value: 'edit',
-                      child: Row(children: [
-                        Icon(Icons.edit, size: 18, color: Color(0xFF1565C0)),
-                        SizedBox(width: 10),
-                        Text('Edit'),
-                      ]),
-                    ),
-                    PopupMenuItem<String>(
-                      value: 'orders',
-                      child: Row(children: [
-                        Icon(Icons.receipt_long, size: 18, color: Colors.green.shade700),
-                        const SizedBox(width: 10),
-                        const Text('Orders'),
-                      ]),
-                    ),
-                  ],
+                  itemBuilder: (_) {
+                    // Show "Promote products" only while THIS doctor is the
+                    // active check-in.
+                    final showPromote = _CheckInSession.isValid()
+                        && _CheckInSession.doctorId == widget.docId;
+                    return [
+                      if (showPromote)
+                        PopupMenuItem<String>(
+                          value: 'promote',
+                          child: Row(children: [
+                            Icon(Icons.campaign, size: 18, color: Colors.orange.shade700),
+                            const SizedBox(width: 10),
+                            const Text('Promoted Products'),
+                          ]),
+                        ),
+                      PopupMenuItem<String>(
+                        value: 'phone_order',
+                        child: Row(children: [
+                          Icon(Icons.phone_in_talk, size: 18, color: Colors.deepPurple.shade400),
+                          const SizedBox(width: 10),
+                          const Text('POB'),
+                        ]),
+                      ),
+                      const PopupMenuItem<String>(
+                        value: 'edit',
+                        child: Row(children: [
+                          Icon(Icons.edit, size: 18, color: Color(0xFF1565C0)),
+                          SizedBox(width: 10),
+                          Text('Edit'),
+                        ]),
+                      ),
+                      PopupMenuItem<String>(
+                        value: 'orders',
+                        child: Row(children: [
+                          Icon(Icons.receipt_long, size: 18, color: Colors.green.shade700),
+                          const SizedBox(width: 10),
+                          const Text('Orders'),
+                        ]),
+                      ),
+                    ];
+                  },
                 ),
               ),
             ],
@@ -1519,10 +1638,12 @@ class DoctorOrderSummaryScreen extends StatelessWidget {
         title: Text(doctorName),
       ),
       body: StreamBuilder<QuerySnapshot>(
+        // Filter only by doctorId at the server (no composite index needed).
+        // Status is filtered client-side so the summary works without
+        // depending on an `orders` composite index.
         stream: FirebaseFirestore.instance
             .collection('orders')
             .where('doctorId', isEqualTo: doctorId)
-            .where('status', whereIn: ['approved', 'dispatched', 'delivered'])
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -1530,14 +1651,42 @@ class DoctorOrderSummaryScreen extends StatelessWidget {
           }
           if (snapshot.hasError) {
             return Center(
-              child: Text('Error: ${snapshot.error}',
-                  style: const TextStyle(color: Colors.red)),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                  const SizedBox(height: 12),
+                  const Text('Could not load orders.',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  Text(snapshot.error.toString(),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                ]),
+              ),
             );
           }
 
-          final docs = snapshot.data?.docs ?? [];
+          // Only count orders the stockist has approved (or beyond).
+          const approvedStatuses = {'approved', 'dispatched', 'delivered'};
+          final allDocs = snapshot.data?.docs ?? [];
+          final docs = allDocs.where((d) {
+            final s = (d.data() as Map<String, dynamic>)['status']?.toString() ?? '';
+            return approvedStatuses.contains(s);
+          }).toList()
+            // Newest first
+            ..sort((a, b) {
+              final ta = ((a.data() as Map<String, dynamic>)['createdAt'] as Timestamp?)?.millisecondsSinceEpoch ?? 0;
+              final tb = ((b.data() as Map<String, dynamic>)['createdAt'] as Timestamp?)?.millisecondsSinceEpoch ?? 0;
+              return tb.compareTo(ta);
+            });
 
           if (docs.isEmpty) {
+            // Distinguish between "no orders at all" and "orders pending approval"
+            final pendingCount = allDocs.where((d) {
+              final s = (d.data() as Map<String, dynamic>)['status']?.toString() ?? '';
+              return s == 'pending';
+            }).length;
             return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -1546,12 +1695,17 @@ class DoctorOrderSummaryScreen extends StatelessWidget {
                       size: 80, color: Colors.grey.shade300),
                   const SizedBox(height: 16),
                   Text(
-                    'No approved orders yet',
+                    pendingCount > 0
+                        ? 'No approved orders yet'
+                        : 'No orders for this doctor',
                     style: TextStyle(
                         color: Colors.grey.shade500, fontSize: 16),
                   ),
+                  const SizedBox(height: 4),
                   Text(
-                    'Orders appear here once accepted by the stockist',
+                    pendingCount > 0
+                        ? '$pendingCount order${pendingCount == 1 ? '' : 's'} awaiting stockist approval'
+                        : 'Orders appear here once accepted by the stockist',
                     style: TextStyle(
                         color: Colors.grey.shade400, fontSize: 12),
                     textAlign: TextAlign.center,
@@ -2918,14 +3072,8 @@ Future<void> _loadStockists() async {
         });
       }
 
-      // Phone orders don't consume the active check-in session, since they
-      // were placed without one in the first place.
-      if (!widget.isPhoneOrder) {
-        _activeCheckInDoctorId = null;
-        _activeCheckInDoctorName = null;
-        _activeCheckInTime = null;
-        _CheckInSession.clear();
-      }
+      // Check-in session is intentionally NOT cleared here — the MR must
+      // explicitly tap "Check Out" on the doctor card to end the visit.
 
       if (mounted) {
         Navigator.pop(context);
@@ -6476,6 +6624,306 @@ class _MrTourPlanScreenState extends State<MrTourPlanScreen> {
             child: const Text('Close'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROMOTE PRODUCTS — quick action available only during an active check-in.
+// MR multi-selects products promoted to the doctor; data is written onto the
+// current visit doc so admin sees it on the existing visit history card.
+// ─────────────────────────────────────────────────────────────────────────────
+class MrPromoteProductsScreen extends StatefulWidget {
+  final String doctorId;
+  final String doctorName;
+  final String visitId;
+  const MrPromoteProductsScreen({
+    super.key,
+    required this.doctorId,
+    required this.doctorName,
+    required this.visitId,
+  });
+
+  @override
+  State<MrPromoteProductsScreen> createState() => _MrPromoteProductsScreenState();
+}
+
+class _MrPromoteProductsScreenState extends State<MrPromoteProductsScreen> {
+  String _search = '';
+  String _filterDivision = 'All';
+  final _divisions = const ['All', 'Osteon', 'Ceflon', 'General'];
+
+  // productId → product map (for submit payload)
+  final Map<String, Map<String, dynamic>> _selected = {};
+
+  // Existing promotions already on this visit (so MR can edit / sees what was sent)
+  bool _loadingExisting = true;
+  bool _submitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadExisting();
+  }
+
+  Future<void> _loadExisting() async {
+    try {
+      final snap = await db.collection('visits').doc(widget.visitId).get();
+      final data = snap.data();
+      final list = (data?['promotedProducts'] as List?) ?? const [];
+      for (final raw in list) {
+        if (raw is Map) {
+          final id = raw['productId']?.toString();
+          if (id != null && id.isNotEmpty) {
+            _selected[id] = Map<String, dynamic>.from(raw);
+          }
+        }
+      }
+    } catch (_) {/* non-fatal — start with empty selection */}
+    if (mounted) setState(() => _loadingExisting = false);
+  }
+
+  Color _divColor(String div) {
+    switch (div) {
+      case 'Osteon': return Colors.blue;
+      case 'Ceflon': return Colors.teal;
+      default:       return Colors.green;
+    }
+  }
+
+  Future<void> _submit() async {
+    if (_submitting) return;
+    setState(() => _submitting = true);
+    try {
+      await db.collection('visits').doc(widget.visitId).update({
+        'promotedProducts': _selected.values.toList(),
+        'promotedProductsAt': FieldValue.serverTimestamp(),
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_selected.isEmpty
+            ? 'Promotions cleared.'
+            : '${_selected.length} product${_selected.length == 1 ? '' : 's'} submitted to admin ✓'),
+        backgroundColor: Colors.green,
+      ));
+      Navigator.pop(context);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Promote Products'),
+          Text('to ${widget.doctorName}',
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.normal)),
+        ]),
+      ),
+      body: _loadingExisting
+          ? const Center(child: CircularProgressIndicator())
+          : Column(children: [
+              // Selected pills bar
+              if (_selected.isNotEmpty)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+                  color: Colors.green.shade50,
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('${_selected.length} selected',
+                        style: TextStyle(
+                            color: Colors.green.shade700,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 6),
+                    Wrap(spacing: 6, runSpacing: 6,
+                      children: _selected.values.map((p) {
+                        return Chip(
+                          visualDensity: VisualDensity.compact,
+                          label: Text(p['name']?.toString() ?? '',
+                              style: const TextStyle(fontSize: 11)),
+                          backgroundColor: Colors.white,
+                          side: BorderSide(color: Colors.green.shade300),
+                          deleteIcon: const Icon(Icons.close, size: 14),
+                          onDeleted: () => setState(() =>
+                              _selected.remove(p['productId']?.toString())),
+                        );
+                      }).toList(),
+                    ),
+                  ]),
+                ),
+
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+                child: TextField(
+                  onChanged: (v) => setState(() => _search = v.toLowerCase()),
+                  decoration: InputDecoration(
+                    hintText: 'Search products...',
+                    prefixIcon: const Icon(Icons.search),
+                    isDense: true,
+                  ),
+                ),
+              ),
+              SizedBox(
+                height: 38,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  itemCount: _divisions.length,
+                  itemBuilder: (_, i) {
+                    final div = _divisions[i];
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: FilterChip(
+                        label: Text(div),
+                        selected: _filterDivision == div,
+                        onSelected: (_) => setState(() => _filterDivision = div),
+                      ),
+                    );
+                  },
+                ),
+              ),
+
+              Expanded(
+                child: StreamBuilder<QuerySnapshot>(
+                  stream: db.collection('products').orderBy('name').snapshots(),
+                  builder: (context, snap) {
+                    if (snap.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (!snap.hasData || snap.data!.docs.isEmpty) {
+                      return Center(
+                        child: Text('No products available',
+                            style: TextStyle(color: Colors.grey.shade500)),
+                      );
+                    }
+                    final products = snap.data!.docs.where((d) {
+                      final data = d.data() as Map<String, dynamic>;
+                      final name = (data['name'] ?? '').toString().toLowerCase();
+                      final code = (data['code'] ?? '').toString().toLowerCase();
+                      final division = (data['division'] ?? '').toString();
+                      final matchesSearch = _search.isEmpty
+                          || name.contains(_search)
+                          || code.contains(_search);
+                      final matchesDiv = _filterDivision == 'All'
+                          || division == _filterDivision;
+                      return matchesSearch && matchesDiv;
+                    }).toList();
+                    if (products.isEmpty) {
+                      return Center(
+                        child: Text('No products match your filter.',
+                            style: TextStyle(color: Colors.grey.shade500)),
+                      );
+                    }
+                    return ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 100),
+                      itemCount: products.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 6),
+                      itemBuilder: (_, i) {
+                        final doc = products[i];
+                        final data = doc.data() as Map<String, dynamic>;
+                        final id = doc.id;
+                        final name = data['name']?.toString() ?? 'Unknown';
+                        final code = data['code']?.toString() ?? '';
+                        final division = data['division']?.toString() ?? 'General';
+                        final color = _divColor(division);
+                        final isOn = _selected.containsKey(id);
+                        return Card(
+                          margin: EdgeInsets.zero,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            side: BorderSide(
+                              color: isOn ? Colors.green : Colors.grey.shade200,
+                              width: isOn ? 1.4 : 1,
+                            ),
+                          ),
+                          child: CheckboxListTile(
+                            dense: true,
+                            controlAffinity: ListTileControlAffinity.leading,
+                            value: isOn,
+                            onChanged: (v) => setState(() {
+                              if (v == true) {
+                                _selected[id] = {
+                                  'productId': id,
+                                  'name': name,
+                                  'code': code,
+                                  'division': division,
+                                };
+                              } else {
+                                _selected.remove(id);
+                              }
+                            }),
+                            title: Row(children: [
+                              Expanded(
+                                child: Text(name,
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13)),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 7, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: color.withOpacity(0.12),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                      color: color.withOpacity(0.3)),
+                                ),
+                                child: Text(division,
+                                    style: TextStyle(
+                                        color: color,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w600)),
+                              ),
+                            ]),
+                            subtitle: code.isEmpty
+                                ? null
+                                : Text(code,
+                                    style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey.shade600)),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            ]),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: ElevatedButton.icon(
+            onPressed: _submitting ? null : _submit,
+            icon: _submitting
+                ? const SizedBox(
+                    width: 16, height: 16,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white))
+                : const Icon(Icons.send),
+            label: Text(_submitting
+                ? 'Submitting...'
+                : _selected.isEmpty
+                    ? 'Submit (none selected)'
+                    : 'Submit ${_selected.length} to Admin'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF1565C0),
+              foregroundColor: Colors.white,
+              minimumSize: const Size.fromHeight(46),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+        ),
       ),
     );
   }

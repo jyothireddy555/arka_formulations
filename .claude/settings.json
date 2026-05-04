@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($out = flutter analyze lib/mr_screens.dart 2>&1 | Out-String; if \\($out -match \"error -\"\\) { Write-Output \"ERRORS FOUND:\"; $out -split \"`n\" | Where-Object { $_ -match \"error -\" } } else { Write-Output \"NO ERRORS - only warnings/infos\" })"
+    ]
+  }
+}

@@ -3430,7 +3430,13 @@ class _AdminMrReportsScreenState extends State<AdminMrReportsScreen> {
                                             ),
                                             child: Text(data['followUp'] ?? ''),
                                           ),
+                                          const SizedBox(height: 12),
                                         ],
+                                        // Products promoted on this report's date
+                                        _PromotedProductsSection(
+                                          mrId: data['mrId']?.toString() ?? '',
+                                          date: data['date']?.toString() ?? '',
+                                        ),
                                       ],
                                     ),
                                   ),
@@ -3447,6 +3453,203 @@ class _AdminMrReportsScreenState extends State<AdminMrReportsScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Promoted-products section embedded inside an MR Daily Report card.
+// Loads the visits for the same MR + date and surfaces every product the MR
+// recorded as promoted during those check-ins, grouped by doctor.
+// Only renders if at least one promotion exists; otherwise it is a no-op.
+// ─────────────────────────────────────────────────────────────────────────────
+class _PromotedProductsSection extends StatefulWidget {
+  final String mrId;
+  final String date;
+  const _PromotedProductsSection({required this.mrId, required this.date});
+
+  @override
+  State<_PromotedProductsSection> createState() => _PromotedProductsSectionState();
+}
+
+class _PromotedProductsSectionState extends State<_PromotedProductsSection> {
+  Future<List<Map<String, dynamic>>>? _future;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.mrId.isNotEmpty && widget.date.isNotEmpty) {
+      _future = _load();
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _load() async {
+    final snap = await _db
+        .collection('visits')
+        .where('mrId', isEqualTo: widget.mrId)
+        .where('date', isEqualTo: widget.date)
+        .get();
+    final out = <Map<String, dynamic>>[];
+    for (final v in snap.docs) {
+      final data = v.data();
+      final list = (data['promotedProducts'] as List?) ?? const [];
+      if (list.isEmpty) continue;
+      out.add({
+        'doctorName': data['doctorName']?.toString() ?? 'Unknown Doctor',
+        'products': list,
+      });
+    }
+    return out;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_future == null) return const SizedBox.shrink();
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _future,
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 6),
+            child: SizedBox(
+              height: 16, width: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          );
+        }
+        final groups = snap.data ?? const [];
+        if (groups.isEmpty) return const SizedBox.shrink();
+
+        final totalProducts = groups.fold<int>(
+            0, (sum, g) => sum + ((g['products'] as List).length));
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Icon(Icons.campaign, size: 16, color: Colors.deepOrange.shade700),
+              const SizedBox(width: 6),
+              Text(
+                'Products Promoted',
+                style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.deepOrange.shade800),
+              ),
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                decoration: BoxDecoration(
+                  color: Colors.deepOrange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.deepOrange.shade200),
+                ),
+                child: Text(
+                  '$totalProducts across ${groups.length} '
+                  'doctor${groups.length == 1 ? '' : 's'}',
+                  style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.deepOrange.shade700),
+                ),
+              ),
+            ]),
+            const SizedBox(height: 6),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 4),
+              decoration: BoxDecoration(
+                color: Colors.deepOrange.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.deepOrange.shade200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: groups.map((g) {
+                  final docName = g['doctorName'] as String;
+                  final products = g['products'] as List;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(children: [
+                          Icon(Icons.person,
+                              size: 13, color: Colors.deepOrange.shade400),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              docName,
+                              style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                          Text(
+                            '${products.length} item${products.length == 1 ? '' : 's'}',
+                            style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.deepOrange.shade700,
+                                fontWeight: FontWeight.w600),
+                          ),
+                        ]),
+                        const SizedBox(height: 4),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: products.map<Widget>((raw) {
+                            final p = raw is Map ? raw : const {};
+                            final name = p['name']?.toString() ?? '—';
+                            final code = p['code']?.toString() ?? '';
+                            final div = p['division']?.toString() ?? '';
+                            return Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                    color: Colors.deepOrange.shade200),
+                              ),
+                              child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.medication,
+                                        size: 11,
+                                        color: Colors.deepOrange.shade400),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      name,
+                                      style: const TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600),
+                                    ),
+                                    if (code.isNotEmpty) ...[
+                                      const SizedBox(width: 4),
+                                      Text('· $code',
+                                          style: TextStyle(
+                                              fontSize: 10,
+                                              color: Colors.grey.shade600)),
+                                    ],
+                                    if (div.isNotEmpty) ...[
+                                      const SizedBox(width: 4),
+                                      Text('· $div',
+                                          style: TextStyle(
+                                              fontSize: 10,
+                                              color: Colors.grey.shade600)),
+                                    ],
+                                  ]),
+                            );
+                          }).toList(),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -6021,26 +6224,56 @@ class DoctorOrderSummaryScreen extends StatelessWidget {
       appBar: AppBar(
         title: Text(doctorName),
       ),
-      body: FutureBuilder<QuerySnapshot>(
-        future: FirebaseFirestore.instance
+      body: StreamBuilder<QuerySnapshot>(
+        // Filter only by doctorId at the server (no composite index needed).
+        // Status is filtered client-side so the summary works without
+        // depending on an `orders` composite index, and so it captures every
+        // post-approval status the codebase may use.
+        stream: FirebaseFirestore.instance
             .collection('orders')
             .where('doctorId', isEqualTo: doctorId)
-            .where('status', isEqualTo: 'delivered')
-            .get(),
+            .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
             return Center(
-              child: Text('Error: ${snapshot.error}',
-                  style: const TextStyle(color: Colors.red)),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                  const SizedBox(height: 12),
+                  const Text('Could not load orders.',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  Text(snapshot.error.toString(),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                ]),
+              ),
             );
           }
 
-          final docs = snapshot.data?.docs ?? [];
+          // Count any order that has cleared stockist approval.
+          const approvedStatuses = {'approved', 'dispatched', 'delivered'};
+          final allDocs = snapshot.data?.docs ?? [];
+          final docs = allDocs.where((d) {
+            final s = (d.data() as Map<String, dynamic>)['status']?.toString() ?? '';
+            return approvedStatuses.contains(s);
+          }).toList()
+            ..sort((a, b) {
+              final ta = ((a.data() as Map<String, dynamic>)['createdAt'] as Timestamp?)?.millisecondsSinceEpoch ?? 0;
+              final tb = ((b.data() as Map<String, dynamic>)['createdAt'] as Timestamp?)?.millisecondsSinceEpoch ?? 0;
+              return tb.compareTo(ta);
+            });
 
           if (docs.isEmpty) {
+            // Differentiate "no orders" vs "orders pending stockist approval".
+            final pendingCount = allDocs.where((d) {
+              final s = (d.data() as Map<String, dynamic>)['status']?.toString() ?? '';
+              return s == 'pending';
+            }).length;
             return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -6049,9 +6282,20 @@ class DoctorOrderSummaryScreen extends StatelessWidget {
                       size: 80, color: Colors.grey.shade300),
                   const SizedBox(height: 16),
                   Text(
-                    'No delivered orders yet',
+                    pendingCount > 0
+                        ? 'No approved orders yet'
+                        : 'No orders for this doctor',
                     style: TextStyle(
                         color: Colors.grey.shade500, fontSize: 16),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    pendingCount > 0
+                        ? '$pendingCount order${pendingCount == 1 ? '' : 's'} awaiting stockist approval'
+                        : 'Orders appear here once accepted by the stockist',
+                    style: TextStyle(
+                        color: Colors.grey.shade400, fontSize: 12),
+                    textAlign: TextAlign.center,
                   ),
                 ],
               ),
